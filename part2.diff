@@ -2,26 +2,6 @@ diff --git a/layout/generic/nsPageContentFrame.cpp b/layout/generic/nsPageConten
 index 45afa0a..d7924e7 100644
 --- a/layout/generic/nsPageContentFrame.cpp
 +++ b/layout/generic/nsPageContentFrame.cpp
-@@ -56,19 +56,6 @@ NS_NewPageContentFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
- 
- NS_IMPL_FRAMEARENA_HELPERS(nsPageContentFrame)
- 
--/* virtual */ nsSize
--nsPageContentFrame::ComputeSize(nsRenderingContext *aRenderingContext,
--                                nsSize aCBSize, nscoord aAvailableWidth,
--                                nsSize aMargin, nsSize aBorder, nsSize aPadding,
--                                PRUint32 aFlags)
--{
--  NS_ASSERTION(mPD, "Pages are supposed to have page data");
--  nscoord height = (!mPD || mPD->mReflowSize.height == NS_UNCONSTRAINEDSIZE)
--                   ? NS_UNCONSTRAINEDSIZE
--                   : (mPD->mReflowSize.height - mPD->mReflowMargin.TopBottom());
--  return nsSize(aAvailableWidth, height);
--}
--
- NS_IMETHODIMP
- nsPageContentFrame::Reflow(nsPresContext*           aPresContext,
-                            nsHTMLReflowMetrics&     aDesiredSize,
 @@ -89,31 +76,44 @@ nsPageContentFrame::Reflow(nsPresContext*           aPresContext,
    // Set our size up front, since some parts of reflow depend on it
    // being already set.  Note that the computed height may be

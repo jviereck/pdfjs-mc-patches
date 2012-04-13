@@ -1,0 +1,14 @@
+# HG changeset patch
+# Parent f8f03d17b022c6af6e448e54db1b19845ecf42c5
+
+diff --git a/layout/generic/nsPageContentFrame.cpp b/layout/generic/nsPageContentFrame.cpp
+--- a/layout/generic/nsPageContentFrame.cpp
++++ b/layout/generic/nsPageContentFrame.cpp
+@@ -62,6 +62,7 @@
+                                 nsSize aMargin, nsSize aBorder, nsSize aPadding,
+                                 PRUint32 aFlags)
+ {
++  NS_ASSERTION(false, "nsPageContentFrame::ComputeSize - removed by patch; required to work?");
+   NS_ASSERTION(mPD, "Pages are supposed to have page data");
+   nscoord height = (!mPD || mPD->mReflowSize.height == NS_UNCONSTRAINEDSIZE)
+                    ? NS_UNCONSTRAINEDSIZE

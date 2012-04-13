@@ -1,0 +1,354 @@
+diff --git a/layout/generic/nsPageContentFrame.cpp b/layout/generic/nsPageContentFrame.cpp
+index 45afa0a..d7924e7 100644
+--- a/layout/generic/nsPageContentFrame.cpp
++++ b/layout/generic/nsPageContentFrame.cpp
+@@ -56,19 +56,6 @@ NS_NewPageContentFrame(nsIPresShell* aPresShell, nsStyleContext* aContext)
+ 
+ NS_IMPL_FRAMEARENA_HELPERS(nsPageContentFrame)
+ 
+-/* virtual */ nsSize
+-nsPageContentFrame::ComputeSize(nsRenderingContext *aRenderingContext,
+-                                nsSize aCBSize, nscoord aAvailableWidth,
+-                                nsSize aMargin, nsSize aBorder, nsSize aPadding,
+-                                PRUint32 aFlags)
+-{
+-  NS_ASSERTION(mPD, "Pages are supposed to have page data");
+-  nscoord height = (!mPD || mPD->mReflowSize.height == NS_UNCONSTRAINEDSIZE)
+-                   ? NS_UNCONSTRAINEDSIZE
+-                   : (mPD->mReflowSize.height - mPD->mReflowMargin.TopBottom());
+-  return nsSize(aAvailableWidth, height);
+-}
+-
+ NS_IMETHODIMP
+ nsPageContentFrame::Reflow(nsPresContext*           aPresContext,
+                            nsHTMLReflowMetrics&     aDesiredSize,
+@@ -89,31 +76,44 @@ nsPageContentFrame::Reflow(nsPresContext*           aPresContext,
+   // Set our size up front, since some parts of reflow depend on it
+   // being already set.  Note that the computed height may be
+   // unconstrained; that's ok.  Consumers should watch out for that.
+-  SetSize(nsSize(aReflowState.availableWidth, aReflowState.availableHeight));
++  nsSize  maxSize(aReflowState.ComputedWidth(), aReflowState.ComputedHeight());
++  SetSize(maxSize);
+  
+   // A PageContentFrame must always have one child: the canvas frame.
+   // Resize our frame allowing it only to be as big as we are
+-  // XXX Pay attention to the page's border and padding...
+   if (mFrames.NotEmpty()) {
+     nsIFrame* frame = mFrames.FirstChild();
+-    nsSize  maxSize(aReflowState.availableWidth, aReflowState.availableHeight);
++
++    // Account for any padding set on the page content frame
++    nsMargin pagePadding = aReflowState.mComputedPadding;
++    float scale = aPresContext->GetPageScale();
++    NS_FOR_CSS_SIDES(side) {
++      pagePadding.Side(side) /= scale;
++    }
++
++    maxSize.width -= pagePadding.LeftRight();
++    if (maxSize.height != NS_UNCONSTRAINEDSIZE) {
++      maxSize.height -= pagePadding.TopBottom();
++    }
++
+     nsHTMLReflowState kidReflowState(aPresContext, aReflowState, frame, maxSize);
+-    kidReflowState.SetComputedHeight(aReflowState.availableHeight);
++    kidReflowState.SetComputedHeight(maxSize.height);
+ 
+-    mPD->mPageContentSize  = aReflowState.availableWidth;
++    mPD->mPageContentSize = maxSize.width;
+ 
+     // Reflow the page content area
+-    rv = ReflowChild(frame, aPresContext, aDesiredSize, kidReflowState, 0, 0, 0, aStatus);
++    rv = ReflowChild(frame, aPresContext, aDesiredSize, kidReflowState,
++                     pagePadding.left, pagePadding.top, 0, aStatus);
+     NS_ENSURE_SUCCESS(rv, rv);
+ 
+     // The document element's background should cover the entire canvas, so
+     // take into account the combined area and any space taken up by
+     // absolutely positioned elements
+-    nsMargin padding(0,0,0,0);
++    nsMargin kidPadding(0,0,0,0);
+ 
+     // XXXbz this screws up percentage padding (sets padding to zero
+     // in the percentage padding case)
+-    kidReflowState.mStylePadding->GetPadding(padding);
++    kidReflowState.mStylePadding->GetPadding(kidPadding);
+ 
+     // This is for shrink-to-fit, and therefore we want to use the
+     // scrollable overflow, since the purpose of shrink to fit is to
+@@ -127,12 +127,13 @@ nsPageContentFrame::Reflow(nsPresContext*           aPresContext,
+         mPD->mPageContentXMost =
+           xmost +
+           kidReflowState.mStyleBorder->GetActualBorderWidth(NS_SIDE_RIGHT) +
+-          padding.right;
++          kidPadding.right;
+       }
+     }
+ 
+     // Place and size the child
+-    FinishReflowChild(frame, aPresContext, &kidReflowState, aDesiredSize, 0, 0, 0);
++    FinishReflowChild(frame, aPresContext, &kidReflowState, aDesiredSize,
++                      pagePadding.left, pagePadding.top, 0);
+ 
+     NS_ASSERTION(aPresContext->IsDynamic() || !NS_FRAME_IS_FULLY_COMPLETE(aStatus) ||
+                   !frame->GetNextInFlow(), "bad child flow list");
+@@ -144,9 +145,9 @@ nsPageContentFrame::Reflow(nsPresContext*           aPresContext,
+   NS_ASSERTION(NS_FRAME_IS_COMPLETE(fixedStatus), "fixed frames can be truncated, but not incomplete");
+ 
+   // Return our desired size
+-  aDesiredSize.width = aReflowState.availableWidth;
+-  if (aReflowState.availableHeight != NS_UNCONSTRAINEDSIZE) {
+-    aDesiredSize.height = aReflowState.availableHeight;
++  aDesiredSize.width = aReflowState.ComputedWidth();
++  if (aReflowState.ComputedHeight() != NS_UNCONSTRAINEDSIZE) {
++    aDesiredSize.height = aReflowState.ComputedHeight();
+   }
+ 
+   FinishAndStoreOverflow(&aDesiredSize);
+diff --git a/layout/generic/nsPageContentFrame.h b/layout/generic/nsPageContentFrame.h
+index bf6e56c..606504d 100644
+--- a/layout/generic/nsPageContentFrame.h
++++ b/layout/generic/nsPageContentFrame.h
+@@ -62,6 +62,13 @@ public:
+              ~(nsIFrame::eCanContainOverflowContainers));
+   }
+ 
++  /**
++   * Page content frames have the style context for @page rules.
++   * These can contain background styles, so force this frame to have a
++   * background in printing.
++   */
++  virtual bool HonorPrintBackgroundSettings() { return false; }
++
+   virtual void SetSharedPageData(nsSharedPageData* aPD) { mPD = aPD; }
+ 
+   /**
+diff --git a/layout/generic/nsPageFrame.cpp b/layout/generic/nsPageFrame.cpp
+index 497eb1b..9c6be34 100644
+--- a/layout/generic/nsPageFrame.cpp
++++ b/layout/generic/nsPageFrame.cpp
+@@ -94,9 +94,12 @@ NS_IMETHODIMP nsPageFrame::Reflow(nsPresContext*           aPresContext,
+                "pageFrame must have a pageContentFrame child");
+ 
+   // Resize our frame allowing it only to be as big as we are
+-  // XXX Pay attention to the page's border and padding...
+   if (mFrames.NotEmpty()) {
+     nsIFrame* frame = mFrames.FirstChild();
++
++    // Account for any padding set on the page frame
++    nsMargin pagePadding = aReflowState.mComputedPadding;
++
+     // When the reflow size is NS_UNCONSTRAINEDSIZE it means we are reflowing
+     // a single page to print selection. So this means we want to use
+     // NS_UNCONSTRAINEDSIZE without altering it
+@@ -104,9 +107,9 @@ NS_IMETHODIMP nsPageFrame::Reflow(nsPresContext*           aPresContext,
+     if (mPD->mReflowSize.height == NS_UNCONSTRAINEDSIZE) {
+       avHeight = NS_UNCONSTRAINEDSIZE;
+     } else {
+-      avHeight = mPD->mReflowSize.height - mPD->mReflowMargin.TopBottom();
++      avHeight = mPD->mReflowSize.height - pagePadding.TopBottom();
+     }
+-    nsSize  maxSize(mPD->mReflowSize.width - mPD->mReflowMargin.LeftRight(),
++    nsSize  maxSize(mPD->mReflowSize.width - pagePadding.LeftRight(),
+                     avHeight);
+     float scale = aPresContext->GetPageScale();
+     maxSize.width = NSToCoordCeil(maxSize.width / scale);
+@@ -129,9 +132,28 @@ NS_IMETHODIMP nsPageFrame::Reflow(nsPresContext*           aPresContext,
+     kidReflowState.mFlags.mIsTopOfPage = true;
+     kidReflowState.mFlags.mTableIsSplittable = true;
+ 
++    // Use the margins given in the @page rule.
++    // If a margin is 'auto', use the margin from the print settings for that side.
++    nsMargin pageContentMargin;
++    const nsStyleSides& marginStyle = kidReflowState.mStyleMargin->mMargin;
++    NS_FOR_CSS_SIDES(side) {
++      if (marginStyle.GetUnit(side) == eStyleUnit_Auto) {
++        pageContentMargin.Side(side) = mPD->mReflowMargin.Side(side);
++      } else {
++        pageContentMargin.Side(side) = kidReflowState.mComputedMargin.Side(side);
++      }
++    }
++
++    maxSize.width -= pageContentMargin.LeftRight() / scale;
++    if (maxSize.height != NS_UNCONSTRAINEDSIZE) {
++      maxSize.height -= pageContentMargin.TopBottom() / scale;
++    }
++    kidReflowState.SetComputedWidth(maxSize.width);
++    kidReflowState.SetComputedHeight(maxSize.height);
++
+     // calc location of frame
+-    nscoord xc = mPD->mReflowMargin.left + mPD->mExtraMargin.left;
+-    nscoord yc = mPD->mReflowMargin.top + mPD->mExtraMargin.top;
++    nscoord xc = pagePadding.left + pageContentMargin.left;
++    nscoord yc = pagePadding.top + pageContentMargin.top;
+ 
+     // Get the child's desired size
+     ReflowChild(frame, aPresContext, aDesiredSize, kidReflowState, xc, yc, 0, aStatus);
+@@ -252,7 +274,7 @@ nscoord nsPageFrame::GetXPosition(nsRenderingContext& aRenderingContext,
+   nscoord x = aRect.x;
+   switch (aJust) {
+     case nsIPrintSettings::kJustLeft:
+-      x += mPD->mExtraMargin.left + mPD->mEdgePaperMargin.left;
++      x += mPD->mEdgePaperMargin.left;
+       break;
+ 
+     case nsIPrintSettings::kJustCenter:
+@@ -260,7 +282,7 @@ nscoord nsPageFrame::GetXPosition(nsRenderingContext& aRenderingContext,
+       break;
+ 
+     case nsIPrintSettings::kJustRight:
+-      x += aRect.width - width - mPD->mExtraMargin.right - mPD->mEdgePaperMargin.right;
++      x += aRect.width - width - mPD->mEdgePaperMargin.right;
+       break;
+   } // switch
+ 
+@@ -377,9 +399,9 @@ nsPageFrame::DrawHeaderFooter(nsRenderingContext& aRenderingContext,
+     nscoord x = GetXPosition(aRenderingContext, aRect, aJust, str);
+     nscoord y;
+     if (aHeaderFooter == eHeader) {
+-      y = aRect.y + mPD->mExtraMargin.top + mPD->mEdgePaperMargin.top;
++      y = aRect.y + mPD->mEdgePaperMargin.top;
+     } else {
+-      y = aRect.YMost() - aHeight - mPD->mExtraMargin.bottom - mPD->mEdgePaperMargin.bottom;
++      y = aRect.YMost() - aHeight - mPD->mEdgePaperMargin.bottom;
+     }
+ 
+     // set up new clip and draw the text
+@@ -502,11 +524,45 @@ nsPageFrame::PaintPageContent(nsRenderingContext& aRenderingContext,
+   nsRect rect = aDirtyRect;
+   float scale = PresContext()->GetPageScale();
+   aRenderingContext.PushState();
++
++  // We don't want to scale the paint rects, but we do want to scale the images
++  // they could draw. So scale the rendering context and inverse-scale the
++  // rectangles.
++  aRenderingContext.Scale(scale, scale);
++  rect.ScaleRoundOut(1.0f / scale);
++
+   nsPoint framePos = aPt + pageContentFrame->GetOffsetTo(this);
++
++  // Don't use ScaleRoundOut, the page content frame's width and height are already
++  // scaled appropriately
++  nsRect pageContentRect(framePos, pageContentFrame->GetSize());
++  pageContentRect.x /= scale;
++  pageContentRect.y /= scale;
++
++  // Paint the page background, this could potentially come from an @page rule.
++  // The spec states to paint the background across the whole page.
++  nsStyleContext* styleContext = pageContentFrame->GetStyleContext();
++  nsRect backgroundRect = nsRect(aPt, GetSize());
++  backgroundRect.ScaleRoundOut(1.0f / scale);
++  nsCSSRendering::PaintBackgroundWithSC(PresContext(), aRenderingContext, pageContentFrame,
++                                        rect, pageContentRect, styleContext,
++                                        *GetStyleBorder(), nsCSSRendering::PAINTBG_SYNC_DECODE_IMAGES,
++                                        &backgroundRect);
++
++  // Border and outline from the @page rule
++  aRenderingContext.IntersectClip(backgroundRect);
++  nsCSSRendering::PaintBorder(PresContext(), aRenderingContext, pageContentFrame,
++                              rect, pageContentRect, styleContext,
++                              pageContentFrame->GetSkipSides());
++  nsCSSRendering::PaintOutline(PresContext(), aRenderingContext, pageContentFrame,
++                               rect, pageContentRect, styleContext);
++  aRenderingContext.PopState();
++  aRenderingContext.PushState();
++
+   aRenderingContext.Translate(framePos);
+   // aPt translates to coords relative to this, then margins translate to
+   // pageContentFrame's coords
+-  rect -= framePos;
++  rect = aDirtyRect - framePos;
+   aRenderingContext.Scale(scale, scale);
+   rect.ScaleRoundOut(1.0f / scale);
+   // Make sure we don't draw where we aren't supposed to draw, especially
+@@ -532,11 +588,6 @@ nsPageFrame::PaintPageContent(nsRenderingContext& aRenderingContext,
+   }
+   aRenderingContext.IntersectClip(clipRect);
+ 
+-  nsRect backgroundRect = nsRect(nsPoint(0, 0), pageContentFrame->GetSize());
+-  nsCSSRendering::PaintBackground(PresContext(), aRenderingContext, this,
+-                                  rect, backgroundRect,
+-                                  nsCSSRendering::PAINTBG_SYNC_DECODE_IMAGES);
+-
+   nsLayoutUtils::PaintFrame(&aRenderingContext, pageContentFrame,
+                             nsRegion(rect), NS_RGBA(0,0,0,0),
+                             nsLayoutUtils::PAINT_SYNC_DECODE_IMAGES);
+diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
+index 5936dc2..0178614 100644
+--- a/layout/generic/nsSimplePageSequence.cpp
++++ b/layout/generic/nsSimplePageSequence.cpp
+@@ -86,7 +86,6 @@ nsSharedPageData::nsSharedPageData() :
+   mDocURL(nsnull),
+   mReflowSize(0,0),
+   mReflowMargin(0,0,0,0),
+-  mExtraMargin(0,0,0,0),
+   mEdgePaperMargin(0,0,0,0),
+   mPageContentXMost(0),
+   mPageContentSize(0)
+@@ -238,31 +237,12 @@ nsSimplePageSequenceFrame::Reflow(nsPresContext*          aPresContext,
+   }
+   mPageData->mReflowMargin = mMargin;
+ 
+-  // Compute the size of each page and the x coordinate that each page will
+-  // be placed at
+-  nscoord extraThreshold = NS_MAX(pageSize.width, pageSize.height)/10;
+-  PRInt32 gapInTwips = Preferences::GetInt("print.print_extra_margin");
+-  gapInTwips = NS_MAX(0, gapInTwips);
+-
+-  nscoord extraGap = aPresContext->CSSTwipsToAppUnits(gapInTwips);
+-  extraGap = NS_MIN(extraGap, extraThreshold); // clamp to 1/10 of the largest dim of the page
+-
+-  nsMargin extraMargin(0,0,0,0);
+-  if (aPresContext->IsScreen()) {
+-    extraMargin.SizeTo(extraGap, extraGap, extraGap, extraGap);
+-  }
+-
+-  mPageData->mExtraMargin = extraMargin;
+-
+   // We use the CSS "margin" property on the -moz-page pseudoelement
+   // to determine the space between each page in print preview.
+   // Keep a running y-offset for each page.
+   nscoord y = 0;
+   nscoord maxXMost = 0;
+ 
+-  nsSize availSize(pageSize.width + extraMargin.LeftRight(),
+-                   pageSize.height + extraMargin.TopBottom());
+-
+   // Tile the pages vertically
+   nsHTMLReflowMetrics kidSize;
+   for (nsIFrame* kidFrame = mFrames.FirstChild(); nsnull != kidFrame; ) {
+@@ -272,7 +252,7 @@ nsSimplePageSequenceFrame::Reflow(nsPresContext*          aPresContext,
+ 
+     // Reflow the page
+     nsHTMLReflowState kidReflowState(aPresContext, aReflowState, kidFrame,
+-                                     availSize);
++                                     pageSize);
+     nsReflowStatus  status;
+ 
+     kidReflowState.SetComputedWidth(kidReflowState.availableWidth);
+diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
+index fda1ca6..8caa30d 100644
+--- a/layout/generic/nsSimplePageSequence.h
++++ b/layout/generic/nsSimplePageSequence.h
+@@ -61,9 +61,6 @@ public:
+ 
+   nsSize      mReflowSize;
+   nsMargin    mReflowMargin;
+-  // Extra Margin between the device area and the edge of the page;
+-  // approximates unprintable area
+-  nsMargin    mExtraMargin;
+   // Margin for headers and footers; it defaults to 4/100 of an inch on UNIX 
+   // and 0 elsewhere; I think it has to do with some inconsistency in page size
+   // computations
+diff --git a/layout/style/ua.css b/layout/style/ua.css
+index de336a9..deaf45b 100644
+--- a/layout/style/ua.css
++++ b/layout/style/ua.css
+@@ -218,6 +218,8 @@
+ 
+ *|*::-moz-pagecontent {
+   display: block !important;
++  background-origin: content-box;
++  margin: auto;
+ }
+ 
+ *|*::-moz-pagebreak {

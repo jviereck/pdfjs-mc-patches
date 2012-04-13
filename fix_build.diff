@@ -1,0 +1,106 @@
+# HG changeset patch
+# Parent 043e6a6d85fa6de642fefc50be26cb08bd98211a
+
+diff --git a/layout/style/nsCSSParser.cpp b/layout/style/nsCSSParser.cpp
+--- a/layout/style/nsCSSParser.cpp
++++ b/layout/style/nsCSSParser.cpp
+@@ -2299,22 +2299,6 @@
+ 
+ 
+ bool
+-CSSParserImpl::ParsePageRule(RuleAppendFunc aAppendFunc, void* aData)
+-{
+-  nsAutoPtr<css::Declaration> declaration(ParseDeclarationBlock(PR_TRUE));
+-  if (!declaration) {
+-    REPORT_UNEXPECTED(PEBadSelectorKeyframeRuleIgnored);
+-    return PR_FALSE;
+-  }
+-
+-  // Takes ownership of declaration.
+-  nsRefPtr<nsCSSPageRule> rule = new nsCSSPageRule(declaration);
+-
+-  (*aAppendFunc)(rule, aData);
+-  return PR_TRUE;
+-}
+-
+-bool
+ CSSParserImpl::ParseKeyframesRule(RuleAppendFunc aAppendFunc, void* aData)
+ {
+   if (!GetToken(true)) {
+@@ -2350,6 +2334,22 @@
+   return true;
+ }
+ 
++bool
++CSSParserImpl::ParsePageRule(RuleAppendFunc aAppendFunc, void* aData)
++{
++  nsAutoPtr<css::Declaration> declaration(ParseDeclarationBlock(PR_TRUE));
++  if (!declaration) {
++    REPORT_UNEXPECTED(PEBadSelectorKeyframeRuleIgnored);
++    return PR_FALSE;
++  }
++
++  // Takes ownership of declaration.
++  nsRefPtr<nsCSSPageRule> rule = new nsCSSPageRule(declaration);
++
++  (*aAppendFunc)(rule, aData);
++  return PR_TRUE;
++}
++
+ already_AddRefed<nsCSSKeyframeRule>
+ CSSParserImpl::ParseKeyframeRule()
+ {
+diff --git a/layout/style/nsCSSRules.cpp b/layout/style/nsCSSRules.cpp
+--- a/layout/style/nsCSSRules.cpp
++++ b/layout/style/nsCSSRules.cpp
+@@ -1987,7 +1987,6 @@
+   // - mDOMDeclaration
+ }
+ 
+-
+ // -------------------------------------------
+ // nsCSSKeyframesRule
+ //
+@@ -2375,3 +2374,9 @@
+   }
+ }
+ 
++/* virtual */ size_t
++nsCSSPageRule::SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const
++{
++  // TODO: Is this the right thing to do here???
++  return aMallocSizeOf(this); 
++}
+diff --git a/layout/style/nsCSSRules.h b/layout/style/nsCSSRules.h
+--- a/layout/style/nsCSSRules.h
++++ b/layout/style/nsCSSRules.h
+@@ -447,7 +447,9 @@
+ 
+ class nsCSSPageRule;
+ 
+-class NS_FINAL_CLASS nsCSSPageStyleDeclaration
++//class NS_FINAL_CLASS nsCSSPageStyleDeclaration
++//                         : public nsDOMCSSDeclaration
++class nsCSSPageStyleDeclaration MOZ_FINAL
+                          : public nsDOMCSSDeclaration
+ {
+ public:
+@@ -478,7 +480,9 @@
+   nsCSSPageRule *mRule;
+ };
+ 
+-class NS_FINAL_CLASS nsCSSPageRule : public mozilla::css::Rule,
++// class NS_FINAL_CLASS nsCSSPageRule : public mozilla::css::Rule,
++//                                     public nsIDOMCSSPageRule
++class nsCSSPageRule MOZ_FINAL : public mozilla::css::Rule,
+                                      public nsIDOMCSSPageRule
+ {
+ public:
+@@ -513,6 +517,7 @@
+ 
+   void ChangeDeclaration(mozilla::css::Declaration* aDeclaration);
+ 
++  virtual size_t SizeOfIncludingThis(nsMallocSizeOfFun aMallocSizeOf) const;
+ private:
+   nsAutoPtr<mozilla::css::Declaration>       mDeclaration;
+   // lazily created when needed:

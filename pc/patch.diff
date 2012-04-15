@@ -1,8 +1,8 @@
 try: -b o -e -p all -u all -t none
 
-diff -r 9ca66ce2672f content/canvas/public/nsICanvasRenderingContextInternal.h
---- a/content/canvas/public/nsICanvasRenderingContextInternal.h	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/canvas/public/nsICanvasRenderingContextInternal.h	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/canvas/public/nsICanvasRenderingContextInternal.h b/content/canvas/public/nsICanvasRenderingContextInternal.h
+--- a/content/canvas/public/nsICanvasRenderingContextInternal.h
++++ b/content/canvas/public/nsICanvasRenderingContextInternal.h
 @@ -86,6 +86,8 @@
    // whenever the size of the element changes.
    NS_IMETHOD SetDimensions(PRInt32 width, PRInt32 height) = 0;
@@ -12,9 +12,9 @@ diff -r 9ca66ce2672f content/canvas/public/nsICanvasRenderingContextInternal.h
    NS_IMETHOD InitializeWithSurface(nsIDocShell *docShell, gfxASurface *surface, PRInt32 width, PRInt32 height) = 0;
  
    // Render the canvas at the origin of the given gfxContext
-diff -r 9ca66ce2672f content/canvas/src/WebGLContext.cpp
---- a/content/canvas/src/WebGLContext.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/canvas/src/WebGLContext.cpp	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/canvas/src/WebGLContext.cpp b/content/canvas/src/WebGLContext.cpp
+--- a/content/canvas/src/WebGLContext.cpp
++++ b/content/canvas/src/WebGLContext.cpp
 @@ -327,6 +327,14 @@
      return NS_OK;
  }
@@ -30,9 +30,9 @@ diff -r 9ca66ce2672f content/canvas/src/WebGLContext.cpp
  NS_IMETHODIMP
  WebGLContext::SetDimensions(PRInt32 width, PRInt32 height)
  {
-diff -r 9ca66ce2672f content/canvas/src/WebGLContext.h
---- a/content/canvas/src/WebGLContext.h	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/canvas/src/WebGLContext.h	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/canvas/src/WebGLContext.h b/content/canvas/src/WebGLContext.h
+--- a/content/canvas/src/WebGLContext.h
++++ b/content/canvas/src/WebGLContext.h
 @@ -544,6 +544,7 @@
      }
  
@@ -41,9 +41,9 @@ diff -r 9ca66ce2672f content/canvas/src/WebGLContext.h
      NS_IMETHOD InitializeWithSurface(nsIDocShell *docShell, gfxASurface *surface, PRInt32 width, PRInt32 height)
          { return NS_ERROR_NOT_IMPLEMENTED; }
      NS_IMETHOD Reset()
-diff -r 9ca66ce2672f content/canvas/src/nsCanvasRenderingContext2D.cpp
---- a/content/canvas/src/nsCanvasRenderingContext2D.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+--- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
++++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
 @@ -347,6 +347,8 @@
  
      // nsICanvasRenderingContextInternal
@@ -197,9 +197,9 @@ diff -r 9ca66ce2672f content/canvas/src/nsCanvasRenderingContext2D.cpp
      mThebes->NewPath();
      mThebes->Rectangle(dirtyRect);
      mThebes->SetSource(imgsurf, gfxPoint(x, y));
-diff -r 9ca66ce2672f content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
---- a/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp b/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
+--- a/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
++++ b/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
 @@ -402,6 +402,7 @@
  
    // nsICanvasRenderingContextInternal
@@ -223,9 +223,9 @@ diff -r 9ca66ce2672f content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
  nsresult
  nsCanvasRenderingContext2DAzure::InitializeWithTarget(DrawTarget *target, PRInt32 width, PRInt32 height)
  {
-diff -r 9ca66ce2672f content/html/content/public/nsHTMLCanvasElement.h
---- a/content/html/content/public/nsHTMLCanvasElement.h	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/html/content/public/nsHTMLCanvasElement.h	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
 @@ -203,6 +203,10 @@
                              nsICanvasRenderingContextInternal **aContext);
  
@@ -250,9 +250,9 @@ diff -r 9ca66ce2672f content/html/content/public/nsHTMLCanvasElement.h
  };
  
  #endif /* nsHTMLCanvasElement_h__ */
-diff -r 9ca66ce2672f content/html/content/src/nsHTMLCanvasElement.cpp
---- a/content/html/content/src/nsHTMLCanvasElement.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/content/html/content/src/nsHTMLCanvasElement.cpp	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
 @@ -82,6 +82,8 @@
  
  nsHTMLCanvasElement::~nsHTMLCanvasElement()
@@ -353,10 +353,10 @@ diff -r 9ca66ce2672f content/html/content/src/nsHTMLCanvasElement.cpp
  nsresult
  nsHTMLCanvasElement::ExtractData(const nsAString& aType,
                                   const nsAString& aOptions,
-diff -r 9ca66ce2672f dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
---- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl	Mon Apr 09 15:47:42 2012 +0800
-+++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl	Wed Apr 11 08:28:52 2012 -0700
-@@ -56,6 +56,12 @@
+diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+--- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
++++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+@@ -56,6 +56,11 @@
  interface nsIVariant;
  interface nsIInputStreamCallback;
  
@@ -365,11 +365,10 @@ diff -r 9ca66ce2672f dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
 +  void render(in nsISupports ctx);
 +};
 +
-+
- [scriptable, uuid(21296a59-25d8-45fb-8c27-290044c88922)]
+ [scriptable, uuid(5929542B-C68E-48AB-84F9-D9642DA39720)]
  interface nsIDOMHTMLCanvasElement : nsIDOMHTMLElement
  {
-@@ -88,5 +94,7 @@
+@@ -88,5 +93,7 @@
    // stream in the desired image format.
    void mozFetchAsStream(in nsIInputStreamCallback callback,
                                          [optional] in DOMString type);
@@ -377,9 +376,9 @@ diff -r 9ca66ce2672f dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
 +  attribute nsIPrintCallback mozPrintCallback;
  };
  
-diff -r 9ca66ce2672f gfx/thebes/gfxASurface.cpp
---- a/gfx/thebes/gfxASurface.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/gfx/thebes/gfxASurface.cpp	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/gfx/thebes/gfxASurface.cpp b/gfx/thebes/gfxASurface.cpp
+--- a/gfx/thebes/gfxASurface.cpp
++++ b/gfx/thebes/gfxASurface.cpp
 @@ -394,6 +394,18 @@
      return true;
  }
@@ -399,9 +398,9 @@ diff -r 9ca66ce2672f gfx/thebes/gfxASurface.cpp
  /* static */
  PRInt32
  gfxASurface::FormatStrideForWidth(gfxImageFormat format, PRInt32 width)
-diff -r 9ca66ce2672f gfx/thebes/gfxASurface.h
---- a/gfx/thebes/gfxASurface.h	Mon Apr 09 15:47:42 2012 +0800
-+++ b/gfx/thebes/gfxASurface.h	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/gfx/thebes/gfxASurface.h b/gfx/thebes/gfxASurface.h
+--- a/gfx/thebes/gfxASurface.h
++++ b/gfx/thebes/gfxASurface.h
 @@ -208,6 +208,9 @@
      void SetSubpixelAntialiasingEnabled(bool aEnabled);
      bool GetSubpixelAntialiasingEnabled();
@@ -412,9 +411,9 @@ diff -r 9ca66ce2672f gfx/thebes/gfxASurface.h
      /**
       * Record number of bytes for given surface type.  Use positive bytes
       * for allocations and negative bytes for deallocations.
-diff -r 9ca66ce2672f gfx/thebes/gfxContext.h
---- a/gfx/thebes/gfxContext.h	Mon Apr 09 15:47:42 2012 +0800
-+++ b/gfx/thebes/gfxContext.h	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/gfx/thebes/gfxContext.h b/gfx/thebes/gfxContext.h
+--- a/gfx/thebes/gfxContext.h
++++ b/gfx/thebes/gfxContext.h
 @@ -389,6 +389,8 @@
       */
      void PixelSnappedRectangleAndSetPattern(const gfxRect& rect, gfxPattern *pattern);
@@ -424,10 +423,10 @@ diff -r 9ca66ce2672f gfx/thebes/gfxContext.h
      /**
       ** Painting sources
       **/
-diff -r 9ca66ce2672f layout/generic/nsHTMLCanvasFrame.cpp
---- a/layout/generic/nsHTMLCanvasFrame.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/layout/generic/nsHTMLCanvasFrame.cpp	Wed Apr 11 08:28:52 2012 -0700
-@@ -292,6 +292,9 @@
+diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasFrame.cpp
+--- a/layout/generic/nsHTMLCanvasFrame.cpp
++++ b/layout/generic/nsHTMLCanvasFrame.cpp
+@@ -293,6 +293,9 @@
    nsHTMLCanvasElement* element = static_cast<nsHTMLCanvasElement*>(GetContent());
    nsIntSize canvasSize = GetCanvasSize();
  
@@ -437,9 +436,9 @@ diff -r 9ca66ce2672f layout/generic/nsHTMLCanvasFrame.cpp
    if (canvasSize.width <= 0 || canvasSize.height <= 0 || area.IsEmpty())
      return nsnull;
  
-diff -r 9ca66ce2672f layout/generic/nsSimplePageSequence.cpp
---- a/layout/generic/nsSimplePageSequence.cpp	Mon Apr 09 15:47:42 2012 +0800
-+++ b/layout/generic/nsSimplePageSequence.cpp	Wed Apr 11 08:28:52 2012 -0700
+diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
+--- a/layout/generic/nsSimplePageSequence.cpp
++++ b/layout/generic/nsSimplePageSequence.cpp
 @@ -50,6 +50,8 @@
  #include "nsContentUtils.h"
  #include "nsDisplayList.h"

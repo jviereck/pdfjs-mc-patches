@@ -1,0 +1,17 @@
+# Mostly taken from https://developer.mozilla.org/En/Developer_Guide/Build_Instructions/Mac_OS_X_Prerequisites
+
+# Import the stock config for building the bowser (Firefox)
+. $topsrcdir/browser/config/mozconfig
+
+# Define where build files should go. This places them in the directory
+# "obj-ff-dbg" under the current source directory
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/ff-rel
+
+# -s makes builds quieter by default
+# -j4 allows 4 tasks to run in parallel. Set the number to be the amount of
+# cores in your machine. 4 is a good number.
+mk_add_options MOZ_MAKE_FLAGS="-s -j6"
+
+ac_add_options --with-ccache=/usr/bin/ccache
+ac_add_options --enable-tests --enable-warnings-as-errors
+ac_add_options --enable-debug --disable-optimize 

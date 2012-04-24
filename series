@@ -1,4 +1,10 @@
 pc/patch.diff
-pc/fix-01.diff 
+pc/fix-01.diff
 pc/fix-02.diff
-pc/fix-03.diff 
+pc/fix-03.diff
+pc/force-thebes.diff
+pc/param.diff
+pc/backup.diff
+pc/param-try-to-fix_failed.diff
+pc/prePagePrint.diff
+pc/prePagePrint-HandlePrintCallback.diff

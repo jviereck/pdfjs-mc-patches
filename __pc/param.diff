@@ -1,0 +1,114 @@
+# HG changeset patch
+# Parent acb530fb04d8e18d45530c7664374cef3294b83a
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -68,6 +68,54 @@
+ using namespace mozilla::dom;
+ using namespace mozilla::layers;
+ 
++class nsCanvasPrintState : public nsICanvasPrintState
++{
++public:
++  NS_DECL_ISUPPORTS
++
++  NS_SCRIPTABLE NS_IMETHOD GetCtx(nsISupports **aContext)
++
++  nsCanvasPrintState(nsICanvasRenderingContextInternal *aContext);
++
++  NS_IMETHOD Done();
++
++  bool mIsDone;
++private:
++  ~nsCanvasPrintState();
++
++  nsCOMPtr<nsICanvasRenderingContextInternal> mContext;
++protected:
++  /* additional members */
++};
++
++
++NS_IMPL_ISUPPORTS1(nsCanvasPrintState, nsICanvasPrintState)
++
++nsCanvasPrintState::nsCanvasPrintState(
++    nsICanvasRenderingContextInternal *aContext): 
++      mContext(aContext), mIsDone(false)
++{
++}
++
++nsCanvasPrintState::~nsCanvasPrintState()
++{
++}
++
++/* readonly attribute nsISupports ctx; */
++NS_IMETHODIMP nsCanvasPrintState::GetContext(nsISupports **context)
++{
++  NS_ADDREF(*context = mContext);
++  return NS_OK;
++}
++
++NS_IMETHODIMP nsCanvasPrintState::Done()
++{
++  mIsDone = true;
++  return NS_OK;
++}
++
++// ---------------------------------------------------------------------------
++
+ nsGenericHTMLElement*
+ NS_NewHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo,
+                         FromParser aFromParser)
+@@ -77,7 +125,7 @@
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+   : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false), mWriteOnly(false),
+-    mIsPrintCanvas(false), mIsPrintPreview(false)
++    mIsPrintCanvas(false), mIsPrintPreview(false), mPrintState(null)
+ {
+ }
+ 
+@@ -178,11 +226,20 @@
+ 
+   if (!mIsReadyToPrint) {
+     mIsReadyToPrint = true;
+-    mPrintCallback->Render(mCurrentContext);
++    CallPrintCallback();
++    // mPrintCallback->Render(mCurrentContext);
+   }
+   return true;
+ }
+ 
++void
++nsHTMLCanvasElement::CallPrintCallback()
++{
++  // ??? Any ADD_REF magic to be done here ???
++  mPrintState = new nsCanvasPrintState(mCurrentContext);
++  mPrintCallback->Render(mPrintState);
++}
++
+ nsresult
+ nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
+ {
+diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+--- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
++++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+@@ -56,12 +56,16 @@
+ interface nsIVariant;
+ interface nsIInputStreamCallback;
+ 
++[scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a67)]
++interface nsICanvasPrintState : nsISupports {
++  readonly attribute nsISupports context;
++};
++
+ [scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a66)]
+ interface nsIPrintCallback : nsISupports {
+-  void render(in nsISupports ctx);
++  void render(in nsICanvasPrintState ctx);
+ };
+ 
+-
+ [scriptable, uuid(21296a59-25d8-45fb-8c27-290044c88922)]
+ interface nsIDOMHTMLCanvasElement : nsIDOMHTMLElement
+ {

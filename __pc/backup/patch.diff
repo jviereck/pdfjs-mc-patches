@@ -365,7 +365,7 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
 +  void render(in nsISupports ctx);
 +};
 +
- [scriptable, uuid(21296a59-25d8-45fb-8c27-290044c88922)]
+ [scriptable, uuid(5929542B-C68E-48AB-84F9-D9642DA39720)]
  interface nsIDOMHTMLCanvasElement : nsIDOMHTMLElement
  {
 @@ -88,5 +93,7 @@
@@ -426,7 +426,7 @@ diff --git a/gfx/thebes/gfxContext.h b/gfx/thebes/gfxContext.h
 diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasFrame.cpp
 --- a/layout/generic/nsHTMLCanvasFrame.cpp
 +++ b/layout/generic/nsHTMLCanvasFrame.cpp
-@@ -292,6 +292,9 @@
+@@ -293,6 +293,9 @@
    nsHTMLCanvasElement* element = static_cast<nsHTMLCanvasElement*>(GetContent());
    nsIntSize canvasSize = GetCanvasSize();
  

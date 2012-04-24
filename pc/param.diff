@@ -1,0 +1,160 @@
+# HG changeset patch
+# Parent ca9387d6aeccc3f8dbc71f4e829138f23362213a
+
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
+@@ -56,6 +56,7 @@
+ #include "Layers.h"
+ 
+ class nsIDOMFile;
++class nsCanvasPrintState;
+ 
+ class nsHTMLCanvasElement : public nsGenericHTMLElement,
+                             public nsICanvasElementExternal,
+@@ -208,7 +209,6 @@
+ 
+   nsCOMPtr<nsIPrintCallback> mPrintCallback;
+   nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
+-  
+ public:
+   // Record whether this canvas should be write-only or not.
+   // We set this when script paints an image from a different origin.
+@@ -221,6 +221,8 @@
+ 
+   bool HandlePrintCallback(nsIntSize &size);
+ 
++  nsCOMPtr<nsCanvasPrintState> mPrintState;
++  void CallPrintCallback();
+ };
+ 
+ #endif /* nsHTMLCanvasElement_h__ */
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -61,6 +61,8 @@
+ 
+ #include "nsIWritablePropertyBag2.h"
+ 
++#include "nsIDOMHTMLCanvasElement.h"
++
+ #define DEFAULT_CANVAS_WIDTH 300
+ #define DEFAULT_CANVAS_HEIGHT 150
+ 
+@@ -68,6 +70,61 @@
+ using namespace mozilla::dom;
+ using namespace mozilla::layers;
+ 
++#define NS_ICANVASPRINTSTATE_IID \                                              
++  {0x8d5fb8a0, 0x7782, 0x11e1, \                                                
++    { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
++
++class nsCanvasPrintState : public nsICanvasPrintState
++{
++public:
++  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
++
++  nsCanvasPrintState(nsICanvasRenderingContextInternal *aContext)
++      : mIsDone(false), mContext(aContext)
++  {
++  }
++
++  NS_IMETHOD GetContext(nsISupports **context)
++  {
++    printf("=== GetContext\n");
++    NS_ADDREF(*context = mContext);
++    return NS_OK;
++  }
++
++  NS_IMETHOD Done()
++  {
++    mIsDone = true;
++    return NS_OK;
++  }
++
++  bool mIsDone;
++  
++  NS_DECL_ISUPPORTS
++private:
++  ~nsCanvasPrintState() 
++  {
++  }
++
++  nsCOMPtr<nsICanvasRenderingContextInternal> mContext;
++protected:
++  /* additional members */
++};
++
++NS_DEFINE_STATIC_IID_ACCESSOR(nsCanvasPrintState, NS_ICANVASPRINTSTATE_IID) 
++
++NS_IMPL_ADDREF(nsCanvasPrintState)
++NS_IMPL_RELEASE(nsCanvasPrintState)
++
++DOMCI_DATA(CanvasPrintState, nsCanvasPrintState)
++
++NS_INTERFACE_MAP_BEGIN(nsCanvasPrintState)
++  NS_INTERFACE_MAP_ENTRY(nsCanvasPrintState)
++  NS_INTERFACE_MAP_ENTRY(nsICanvasPrintState)
++  NS_INTERFACE_MAP_ENTRY(nsISupports)
++NS_INTERFACE_MAP_END
++
++// ---------------------------------------------------------------------------
++
+ nsGenericHTMLElement*
+ NS_NewHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo,
+                         FromParser aFromParser)
+@@ -77,7 +134,7 @@
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+   : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false), mWriteOnly(false),
+-    mIsPrintCanvas(false), mIsPrintPreview(false)
++    mIsPrintCanvas(false), mIsPrintPreview(false), mPrintState(nsnull)
+ {
+ }
+ 
+@@ -178,11 +235,23 @@
+ 
+   if (!mIsReadyToPrint) {
+     mIsReadyToPrint = true;
+-    mPrintCallback->Render(mCurrentContext);
++    CallPrintCallback();
++    // mPrintCallback->Render(mCurrentContext);
+   }
+   return true;
+ }
+ 
++void
++nsHTMLCanvasElement::CallPrintCallback()
++{
++  // ??? Any ADD_REF magic to be done here ???
++  // mPrintState = new nsCanvasPrintState(mCurrentContext);
++  // mPrintCallback->Render(mPrintState);
++
++  nsRefPtr<nsICanvasPrintState> obj = new nsCanvasPrintState(mCurrentContext);
++  mPrintCallback->Render(obj.forget().get());  
++}
++
+ nsresult
+ nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
+ {
+diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+--- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
++++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+@@ -56,9 +56,16 @@
+ interface nsIVariant;
+ interface nsIInputStreamCallback;
+ 
++[scriptable, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a67)]
++interface nsICanvasPrintState : nsISupports {
++  readonly attribute nsISupports context;
++
++  void done();
++};
++
+ [scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a66)]
+ interface nsIPrintCallback : nsISupports {
+-  void render(in nsISupports ctx);
++  void render(in nsICanvasPrintState ctx);
+ };
+ 
+ [scriptable, uuid(21296a59-25d8-45fb-8c27-290044c88922)]

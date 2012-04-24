@@ -1,5 +1,5 @@
-try: -b o -e -p all -u all -t none
-
+# HG changeset patch
+# Parent 9ca66ce2672f906ac678d633a6ac6fd9d13c918a
 diff --git a/content/canvas/public/nsICanvasRenderingContextInternal.h b/content/canvas/public/nsICanvasRenderingContextInternal.h
 --- a/content/canvas/public/nsICanvasRenderingContextInternal.h
 +++ b/content/canvas/public/nsICanvasRenderingContextInternal.h
@@ -58,12 +58,28 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      // Member vars
      PRInt32 mWidth, mHeight;
 +    PRInt32 mExternalWidth, mExternalHeight;
-+    bool mExternalScale = false;
++    bool mExternalScale;
 +    float mExternalScaleX, mExternalScaleY;
      bool mValid;
      bool mZero;
      bool mOpaque;
-@@ -1094,6 +1099,32 @@
+@@ -831,12 +836,14 @@
+ }
+ 
+ nsCanvasRenderingContext2D::nsCanvasRenderingContext2D()
+-    : mValid(false), mZero(false), mOpaque(false), mResetLayer(true)
++    : mExternalScale(false)
++    , mValid(false), mZero(false), mOpaque(false), mResetLayer(true)
+     , mIPC(false)
+     , mCanvasElement(nsnull)
+     , mSaveCount(0), mIsEntireFrameInvalid(false)
+     , mPredictManyRedrawCalls(false), mHasPath(false), mInvalidateCount(0)
+     , mLastStyle(STYLE_MAX), mStyleStack(20)
++
+ {
+     sNumLivingContexts++;
+ }
+@@ -1094,6 +1101,32 @@
      return NS_OK;
  }
  
@@ -96,7 +112,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
  void
  nsCanvasRenderingContext2D::Initialize(nsIDocShell *docShell, PRInt32 width, PRInt32 height) 
  {
-@@ -1102,8 +1133,11 @@
+@@ -1102,8 +1135,11 @@
      NS_ASSERTION(!docShell ^ !mCanvasElement, "Cannot set both docshell and canvas element");
      mDocShell = docShell;
  
@@ -110,7 +126,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
  
      mResetLayer = true;
      mValid = true;
-@@ -1184,6 +1218,11 @@
+@@ -1184,6 +1220,11 @@
              mZero = true;
              mHeight = 1;
              mWidth = 1;
@@ -122,7 +138,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
          } else {
              mZero = false;
          }
-@@ -1493,6 +1532,19 @@
+@@ -1493,6 +1534,19 @@
      return NS_OK;
  }
  
@@ -142,7 +158,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
  NS_IMETHODIMP
  nsCanvasRenderingContext2D::SetTransform(float m11, float m12, float m21, float m22, float dx, float dy)
  {
-@@ -1503,6 +1555,10 @@
+@@ -1503,6 +1557,10 @@
          return NS_OK;
  
      gfxMatrix matrix(m11, m12, m21, m22, dx, dy);
@@ -153,7 +169,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      mThebes->SetMatrix(matrix);
  
      return NS_OK;
-@@ -1522,6 +1578,9 @@
+@@ -1522,6 +1580,9 @@
          return rv;
      }
  
@@ -163,7 +179,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      mThebes->SetMatrix(newCTM);
  
      return NS_OK;
-@@ -3957,7 +4016,7 @@
+@@ -3957,7 +4018,7 @@
          return NS_ERROR_FAILURE;
  
      if (!mZero) {
@@ -172,7 +188,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
          gfxRect destRect(aX, aY, aWidth, aHeight);
  
          bool finishedPainting = false;
-@@ -3974,6 +4033,7 @@
+@@ -3974,6 +4035,7 @@
          }
  
          if (!finishedPainting) {
@@ -180,7 +196,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
              tmpctx->SetOperator(gfxContext::OPERATOR_SOURCE);
              tmpctx->SetSource(mSurface, gfxPoint(-aX, -aY));
              tmpctx->Paint();
-@@ -4092,7 +4152,7 @@
+@@ -4092,7 +4154,7 @@
      }
  
      dirtyRect.MoveBy(gfxPoint(x, y));
@@ -189,7 +205,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
  
      if (dirtyRect.Width() <= 0 || dirtyRect.Height() <= 0)
          return NS_OK;
-@@ -4141,6 +4201,7 @@
+@@ -4141,6 +4203,7 @@
      mThebes->ResetClip();
  
      mThebes->IdentityMatrix();
@@ -231,7 +247,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
  
    nsString mCurrentContextId;
 +
-+  bool mIsReadyToPrint = false;
++  bool mIsReadyToPrint;
 +
 +  nsCOMPtr<nsIPrintCallback> mPrintCallback;
    nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
@@ -242,8 +258,8 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
    // is itself write-only.
    bool                     mWriteOnly;
 +
-+  bool mIsPrintCanvas = false;
-+  bool mIsPrintPreview = false;
++  bool mIsPrintCanvas;
++  bool mIsPrintPreview;
 +
 +  bool HandlePrintCallback(nsIntSize &size);
 +
@@ -253,7 +269,15 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
 diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
 --- a/content/html/content/src/nsHTMLCanvasElement.cpp
 +++ b/content/html/content/src/nsHTMLCanvasElement.cpp
-@@ -82,6 +82,8 @@
+@@ -76,12 +76,15 @@
+ }
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+-  : nsGenericHTMLElement(aNodeInfo), mWriteOnly(false)
++  : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false), mWriteOnly(false),
++    mIsPrintCanvas(false), mIsPrintPreview(false)
+ {
+ }
  
  nsHTMLCanvasElement::~nsHTMLCanvasElement()
  {
@@ -262,7 +286,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  }
  
  NS_IMPL_CYCLE_COLLECTION_CLASS(nsHTMLCanvasElement)
-@@ -152,6 +154,34 @@
+@@ -152,6 +155,34 @@
    return rv;
  }
  
@@ -297,7 +321,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  nsresult
  nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
  {
-@@ -159,11 +189,23 @@
+@@ -159,11 +190,23 @@
    NS_ENSURE_SUCCESS(rv, rv);
    if (aDest->OwnerDoc()->IsStaticDocument()) {
      nsHTMLCanvasElement* dest = static_cast<nsHTMLCanvasElement*>(aDest);
@@ -322,7 +346,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
                             0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
      }
    }
-@@ -247,6 +289,30 @@
+@@ -247,6 +290,30 @@
    return asyncCallback->OnInputStreamReady(asyncData);
  }
  
@@ -356,7 +380,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
 --- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
 +++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
-@@ -56,6 +56,11 @@
+@@ -56,6 +56,12 @@
  interface nsIVariant;
  interface nsIInputStreamCallback;
  
@@ -365,10 +389,11 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
 +  void render(in nsISupports ctx);
 +};
 +
++
  [scriptable, uuid(21296a59-25d8-45fb-8c27-290044c88922)]
  interface nsIDOMHTMLCanvasElement : nsIDOMHTMLElement
  {
-@@ -88,5 +93,7 @@
+@@ -88,5 +94,7 @@
    // stream in the desired image format.
    void mozFetchAsStream(in nsIInputStreamCallback callback,
                                          [optional] in DOMString type);

@@ -5,6 +5,8 @@ pc/fix-03.diff
 pc/force-thebes.diff
 pc/param.diff
 pc/backup.diff
-pc/param-try-to-fix_failed.diff
+#pc/param-try-to-fix_failed.diff
 pc/prePagePrint.diff
 pc/prePagePrint-HandlePrintCallback.diff
+pc/fix-layout-print.diff
+pc/fix-preview-rerender.diff

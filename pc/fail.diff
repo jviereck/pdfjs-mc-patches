@@ -1,0 +1,98 @@
+# HG changeset patch
+# Parent 0fef8dfde0de55a88a61642e70a64cfb1005bd57
+
+diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+--- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
++++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+@@ -4337,3 +4337,57 @@
+     mInvalidateCount = 0;
+ }
+ 
++
++
++class nsDOMCanvasRenderingContextPrint : 
++  public nsCanvasRenderingContext2D,
++  public nsIDOMCanvasRenderingContextPrint
++{
++public:
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSIDOMCANVASRENDERINGCONTEXTPRINT
++
++  nsDOMCanvasRenderingContextPrint();
++
++private:
++  ~nsDOMCanvasRenderingContextPrint();
++
++protected:
++  /* additional members */
++};
++
++nsresult
++NS_NewCanvasRenderingContextPrint(nsIDOMCanvasRenderingContextPrint** aResult)
++{
++    nsRefPtr<nsIDOMCanvasRenderingContextPrint> ctx = new nsCanvasRenderingContextPrint();
++    if (!ctx)
++        return NS_ERROR_OUT_OF_MEMORY;
++
++    *aResult = ctx.forget().get();
++    return NS_OK;
++}
++
++/* Implementation file */
++NS_IMPL_ISUPPORTS1(nsDOMCanvasRenderingContextPrint, nsIDOMCanvasRenderingContextPrint)
++
++nsDOMCanvasRenderingContextPrint::nsDOMCanvasRenderingContextPrint()
++{
++  /* member initializers and constructor code */
++}
++
++nsDOMCanvasRenderingContextPrint::~nsDOMCanvasRenderingContextPrint()
++{
++  /* destructor code */
++}
++
++/* void done (); */
++NS_IMETHODIMP nsDOMCanvasRenderingContextPrint::GetUseable(bool *useable)
++{
++    return NS_ERROR_NOT_IMPLEMENTED;
++}
++
++/* void done (); */
++NS_IMETHODIMP nsDOMCanvasRenderingContextPrint::Done()
++{
++    return NS_ERROR_NOT_IMPLEMENTED;
++}
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
+@@ -220,7 +220,6 @@
+   bool mIsPrintPreview;
+ 
+   bool HandlePrintCallback(nsIntSize &size);
+-
+ };
+ 
+ #endif /* nsHTMLCanvasElement_h__ */
+diff --git a/dom/interfaces/canvas/nsIDOMCanvasRenderingContext2D.idl b/dom/interfaces/canvas/nsIDOMCanvasRenderingContext2D.idl
+--- a/dom/interfaces/canvas/nsIDOMCanvasRenderingContext2D.idl
++++ b/dom/interfaces/canvas/nsIDOMCanvasRenderingContext2D.idl
+@@ -70,6 +70,7 @@
+   [implicit_jscontext] readonly attribute jsval data;
+ };
+ 
++
+ [scriptable, uuid(c835c768-2dcc-461c-82f5-3653710d2942)]
+ interface nsIDOMCanvasRenderingContext2D : nsISupports
+ {
+@@ -278,3 +279,11 @@
+                   in float w, in float h, in DOMString bgColor,
+                   [optional] in unsigned long flags);
+ };
++
++[scriptable, uuid(c835c768-2dcc-461c-82f5-3653710d2943)]
++interface nsIDOMCanvasRenderingContextPrint : nsIDOMCanvasRenderingContext2D
++{
++  void done();
++
++  readonly attribute boolean useable;
++};

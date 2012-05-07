@@ -1,0 +1,454 @@
+# HG changeset patch
+# Parent fdd207d2b3c4e0d94e89d9ff8d54b0a5b3374abd
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -269,9 +269,11 @@
+ nsresult
+ nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
+ {
++  printf("=== CE::CopyInnerTo\n");
+   nsresult rv = nsGenericHTMLElement::CopyInnerTo(aDest);
+   NS_ENSURE_SUCCESS(rv, rv);
+   if (aDest->OwnerDoc()->IsStaticDocument()) {
++    printf("=== CE::CopyInnerTo::IsStaticDocument!\n");
+     nsHTMLCanvasElement* dest = static_cast<nsHTMLCanvasElement*>(aDest);
+     nsHTMLCanvasElement* self = const_cast<nsHTMLCanvasElement*>(this);
+ 
+@@ -282,6 +284,7 @@
+     // Mark the canvas to be a "PrintCanvas" in case there is a special
+     // rendering callback for printing.
+     if (dest->mPrintCallback) {
++      printf("=== CE::CopyInnerTo::IsStaticDocument::mIsPrintPreview!\n");
+       dest->mIsPrintCanvas = true;
+     }
+ 
+@@ -376,6 +379,7 @@
+ NS_IMETHODIMP
+ nsHTMLCanvasElement::SetMozPrintCallback(nsIPrintCallback *aCallback)
+ {
++  printf("=== CE::SetMozPrintCallback\n");
+   mPrintCallback = aCallback;
+   return NS_OK;
+ }
+diff --git a/layout/base/tests/chrome/Makefile.in b/layout/base/tests/chrome/Makefile.in
+--- a/layout/base/tests/chrome/Makefile.in
++++ b/layout/base/tests/chrome/Makefile.in
+@@ -74,6 +74,8 @@
+ 	     printpreview_bug396024_helper.xul \
+ 	test_printpreview_bug482976.xul \
+ 	     printpreview_bug482976_helper.xul \
++	test_printpreview_print_callback.xul \
++	     printpreview_print_callback_helper.xul \
+     $(NULL)
+ 
+ libs:: $(_CHROME_FILES)
+diff --git a/layout/base/tests/chrome/helper.js b/layout/base/tests/chrome/helper.js
+new file mode 100644
+--- /dev/null
++++ b/layout/base/tests/chrome/helper.js
+@@ -0,0 +1,298 @@
++/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
++/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
++
++var is = window.opener.wrappedJSObject.is;
++var isnot = window.opener.wrappedJSObject.isnot;
++var ok = window.opener.wrappedJSObject.ok;
++var todo = window.opener.wrappedJSObject.todo;
++var SimpleTest = window.opener.wrappedJSObject.SimpleTest;
++var gWbp;
++var ctx1;
++var ctx2;
++var counter = 0;
++
++var file = Components.classes["@mozilla.org/file/directory_service;1"]
++             .getService(Components.interfaces.nsIProperties)
++             .get("TmpD", Components.interfaces.nsILocalFile);
++var filePath = file.path;
++
++function printpreview() {
++  gWbp = window.frames[1].QueryInterface(Components.interfaces.nsIInterfaceRequestor)
++             .getInterface(Components.interfaces.nsIWebBrowserPrint);
++  var listener = {
++    onLocationChange: function(webProgress, request, location, flags) { },
++    onProgressChange: function(webProgress, request, curSelfProgress, 
++                               maxSelfProgress, curTotalProgress,
++                               maxTotalProgress) { },
++    onSecurityChange: function(webProgress, request, state) { },
++    onStateChange: function(webProgress, request, stateFlags, status) { },
++    onStatusChange: function(webProgress, request, status, message) { },
++    QueryInterface: function(iid) {
++      if (iid.equals(Components.interfaces.nsIWebProgressListener) ||
++          iid.equals(Components.interfaces.nsISupportsWeakReference))
++            return this;
++      throw Components.results.NS_NOINTERFACE;
++    }
++  }
++  var prefs = Components.classes["@mozilla.org/preferences-service;1"]
++                            .getService(Components.interfaces.nsIPrefBranch);
++  prefs.setBoolPref('print.show_print_progress', false);
++  //XXX I would have thought this would work, instead I'm forced to use prefs service
++  gWbp.globalPrintSettings.showPrintProgress = false;
++  gWbp.printPreview(gWbp.globalPrintSettings, window.frames[0], listener);
++  prefs.clearUserPref('print.show_print_progress');
++}
++
++function exitprintpreview() {
++  window.frames[1].QueryInterface(Components.interfaces.nsIInterfaceRequestor)
++   .getInterface(Components.interfaces.nsIWebBrowserPrint).exitPrintPreview(); 
++}
++
++function finish() {
++  SimpleTest.finish();
++  window.close();
++}
++
++function runTests()
++{
++  var printService = Components.classes["@mozilla.org/gfx/printsettings-service;1"]
++                               .getService(Components.interfaces.nsIPrintSettingsService);
++
++  try {
++    Components.classes["@mozilla.org/gfx/printerenumerator;1"]
++              .getService(Components.interfaces.nsIPrinterEnumerator);
++  } catch(e) {
++    todo(false, "Test skipped on MacOSX, as the print preview code doesn't work there");
++    finish();
++    return;
++  }
++
++  if (printService.defaultPrinterName != '') {
++		startTest0();
++    // startTest1();
++  } else {
++    todo(false, "No printer seems installed on this machine, that is necessary for this test");
++    finish();
++  }
++}
++
++function compareCanvases() {
++  return window.QueryInterface(Components.interfaces.nsIInterfaceRequestor)
++               .getInterface(Components.interfaces.nsIDOMWindowUtils)
++               .compareCanvases(document.getElementsByTagName("canvas")[0],
++                                document.getElementsByTagName("canvas")[1],
++                                {}) == 0;
++}
++
++function addHTMLContent(parent) {
++  var n = parent.ownerDocument.createElement("div");
++  parent.appendChild(n);
++  var s = "<iframe width='500' height='40' src='data:text/plain,ThisIsAnIframeCreatedDuringPrintPreview'></iframe>";
++  s += "<table>";
++  for (var i = 1; i < 501; ++i) {
++    s += "<tr><td>Cell A" + i + "</td><td>Cell B" + i + "</td><td>Cell C" + i + "</td></tr>";
++  }
++  s += "</table>";
++  n.innerHTML = s;
++}
++
++function startTest0() {
++  ctx1 = document.getElementsByTagName("canvas")[0].getContext("2d");
++  ctx2 = document.getElementsByTagName("canvas")[1].getContext("2d");
++    
++  function setupPrintCanvas(createContext) {
++    // Insert a canvas that is scaled by factor 1.5 and 2.
++    window.frames[0].document.body.innerHTML = "<canvas width='100px' height='100px;' style='border:1px solid black; width:150px; height: 200px'></canvas>";
++    var canvas = window.frames[0].document.getElementsByTagName("canvas")[0];
++    if (createContext) { 
++      var ctx = canvas.getContext("2d");
++      ctx.translate(30, 30);
++      ctx.rotate(Math.PI/4);
++      ctx.fillRect(0, 0, 30, 30);
++    }
++
++    canvas.mozPrintCallback = function(obj) {
++      var ctx = obj.context;
++      ctx.fillStyle = 'red';
++      ctx.translate(30, 30);
++      ctx.rotate(Math.PI/4);
++      ctx.fillRect(0, 0, 30, 30);
++      obj.done();
++    };
++  }
++  
++  function doCompare(failMsg) {
++    printpreview();
++    ctx1.drawWindow(window.frames[1], 120, 100, 300, 300, "rgb(256,256,256)");
++    exitprintpreview()
++
++    window.frames[0].document.body.innerHTML = "<canvas width='150' height='200px;' style='border:1px solid black; width:150px; height: 200px'></canvas>";
++    var canvas = window.frames[0].document.getElementsByTagName("canvas")[0];
++    var ctx = canvas.getContext("2d");
++    ctx.scale(0.75, 1.0);
++    ctx.fillStyle = 'red';
++    ctx.translate(60, 60);
++    ctx.rotate(Math.PI/4);
++    ctx.fillRect(0, 0, 60, 60);
++
++    printpreview();
++    ctx2.drawWindow(window.frames[1], 120, 100, 300, 300, "rgb(256,256,256)");
++    exitprintpreview()
++
++    is(compareCanvases(), true, failMsg);
++  }
++
++  setupPrintCanvas(false);
++  doCompare("Compare printCallback without context");
++  setupPrintCanvas(true);
++  doCompare("Compare printCallback with context");
++
++  runTest1();
++}
++
++function runTest1() {
++  ctx1 = document.getElementsByTagName("canvas")[0].getContext("2d");
++  ctx2 = document.getElementsByTagName("canvas")[1].getContext("2d");
++    
++  function setupPrintCanvas() {
++    // Insert a canvas that is scaled by factor 1.5 and 2.
++    window.frames[0].document.body.innerHTML = "<canvas width='100px' height='100px;' style='border:1px solid black; width:150px; height: 200px'></canvas>";
++    var canvas = window.frames[0].document.getElementsByTagName("canvas")[0];
++
++    canvas.mozPrintCallback = function(obj) {
++      var ctx = obj.context;
++      ctx.fillStyle = 'red';
++      ctx.fillRect(30, 30, 30, 30);
++      ctx.fillStyle = 'black';
++      ctx.fillText("OpenWeb", 35, 35);
++      var imageData = ctx.getImageData(30, 30, 30, 30);  
++      ctx.putImageData(imageData, 0, 0);
++      ctx.putImageData(imageData, 60, 60);
++      obj.done();
++    };
++    printpreview();
++  }
++  
++  function doCompare(failMsg) {
++    ctx1.drawWindow(window.frames[1], 120, 100, 300, 300, "rgb(256,256,256)");
++    exitprintpreview()
++
++    window.frames[0].document.body.innerHTML = "<canvas width='150' height='200px;' style='border:1px solid black; width:150px; height: 200px'></canvas>";
++    var canvas = window.frames[0].document.getElementsByTagName("canvas")[0];
++    var ctx = canvas.getContext("2d");
++    ctx.scale(0.75, 1.0);
++    ctx.fillStyle = 'red';
++    ctx.translate(60, 60);
++    ctx.rotate(Math.PI/4);
++    ctx.fillRect(0, 0, 60, 60);
++
++    printpreview();
++    ctx2.drawWindow(window.frames[1], 120, 100, 300, 300, "rgb(256,256,256)");
++    exitprintpreview()
++
++    is(compareCanvases(), true, failMsg);
++  }
++
++  setupPrintCanvas();
++  //doCompare("Compare printCallback without context");
++  //setupPrintCanvas(true);
++  //doCompare("Compare printCallback with context");
++}
++
++function runTest2() {
++  isnot(window.frames[0].document.body.firstChild.nextSibling.textContent, "0 timers", "Timers should have run!");
++  isnot(window.frames[0].counter, 0, "Timers should have run!");
++  counter = window.frames[0].counter;
++  window.frames[0].counterTimeout = "";
++  setTimeout(runTest3, 0);
++}
++
++var elementIndex = 0;
++var compareEmptyElement = true;
++var emptyFormElements =
++  ["<input type='text'>",
++   "<input type='password'>",
++   "<input type='file'>",
++   "<input type='button'>",
++   "<input type='submit'>",
++   "<input type='reset'>",
++   "<input type='checkbox'>",
++   "<input type='radio'>",
++   "<select></select>",
++   "<select size='5'></select>",
++   "<textarea></textarea>"];
++
++var formElements =
++  ["<input type='text' value='text'>",
++   "<input type='password' value='password'>",
++   "<input type='file' value='" + filePath + "'>",
++   "<input type='button' value='button'>",
++   "<input type='submit' value='submit button'>",
++   "<input type='reset' value='reset button'>",
++   "<input type='checkbox' checked>",
++   "<input type='radio' checked>",
++   "<select><option>option1</option></select>",
++   "<select size='5'><option>1</option><option>2</option><option>3</option></select>",
++   "<textarea value='textarea'>textarea</textarea>"];
++
++function runTest3() {
++  if (compareEmptyElement) {
++    var currentIndex = elementIndex;
++    ++elementIndex;
++    if (elementIndex >= emptyFormElements.length) {
++      elementIndex = 0;
++      compareEmptyElement = false;
++    }
++    compareFormElementPrint(emptyFormElements[currentIndex], emptyFormElements[currentIndex], true);
++    return;
++  } else if (elementIndex < emptyFormElements.length) {
++    var currentIndex = elementIndex;
++    ++elementIndex;
++    compareFormElementPrint(emptyFormElements[currentIndex], formElements[currentIndex], false);
++    return;
++  }
++
++  setTimeout(runTest4, 0)
++}
++
++function compareFormElementPrint(el1, el2, equals) {
++  window.frames[0].document.body.innerHTML = el1;
++  window.frames[0].document.body.firstChild.value =
++    window.frames[0].document.body.firstChild.getAttribute('value');
++  printpreview();
++  ctx1.drawWindow(window.frames[1], 0, 0, 300, 300, "rgb(256,256,256)");
++  exitprintpreview();
++  window.frames[0].document.body.innerHTML = el2;
++  window.frames[0].document.body.firstChild.value =
++    window.frames[0].document.body.firstChild.getAttribute('value');
++  printpreview();
++  ctx2.drawWindow(window.frames[1], 0, 0, 300, 300, "rgb(256,256,256)");
++  exitprintpreview();
++  is(compareCanvases(), equals,
++     "Comparing print preview didn't succeed [" + el1 + " : " + el2 + "]");
++  setTimeout(runTest3, 100);
++}
++
++// This is a crash test for bug 539060.
++function runTest4() {
++  window.frames[0].document.body.innerHTML =
++    "<iframe style='display: none;' src='data:text/html,<iframe>'></iframe>";
++  setTimeout(runTest4end, 500);
++}
++
++function runTest4end() {
++  printpreview();
++  exitprintpreview();
++
++  runTest5();
++}
++
++// This is a crash test for bug 595337
++function runTest5() {
++  window.frames[0].document.body.innerHTML =
++    '<iframe style="position: fixed; visibility: hidden; bottom: 10em;"></iframe>' +
++    '<input contenteditable="true" style="display: table; page-break-before: left; width: 10000px;">';
++  printpreview();
++  exitprintpreview();
++  finish();
++}
+diff --git a/layout/base/tests/chrome/printpreview_helper.xul b/layout/base/tests/chrome/printpreview_helper.xul
+--- a/layout/base/tests/chrome/printpreview_helper.xul
++++ b/layout/base/tests/chrome/printpreview_helper.xul
+@@ -4,7 +4,9 @@
+                  type="text/css"?>
+ <window onload="runTests()"
+         xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
+-<iframe height="200" width="600" type="content"></iframe>
++<iframe height="200" width="600" type="content">
++<div>Hello!</div>
++</iframe>
+ <iframe height="200" width="600" type="content"></iframe>
+ <script type="application/javascript">
+ <![CDATA[
+@@ -85,7 +87,8 @@
+   }
+ 
+   if (printService.defaultPrinterName != '') {
+-    startTest1();
++		startTest0();
++    // startTest1();
+   } else {
+     todo(false, "No printer seems installed on this machine, that is necessary for this test");
+     finish();
+@@ -112,6 +115,29 @@
+   n.innerHTML = s;
+ }
+ 
++function startTest0() {
++  ctx1 = document.getElementsByTagName("canvas")[0].getContext("2d");
++  ctx2 = document.getElementsByTagName("canvas")[1].getContext("2d");
++  window.frames[0].document.body.innerHTML = "<div><canvas width='100px' height='100px;' style='border:1px solid black; width:200px; height: 200px'></canvas><canvas width='200px' height='200px;' style='border:1px solid black; width:200px; height: 200px'></canvas></div>";
++  var canvas = window.frames[0].document.getElementsByTagName("canvas")[0];
++	var ctx = canvas.getContext("2d");
++	ctx.fillRect(50, 50, 100, 100);
++  canvas.mozPrintCallback = function(obj) {
++		var ctx = obj.context;
++    ctx.fillStyle = 'red';
++    ctx.fillRect(50, 50, 100, 100);
++    obj.done();
++  };
++
++  var canvas = window.frames[0].document.getElementsByTagName("canvas")[1];
++	var ctx = canvas.getContext("2d");
++  ctx.fillStyle = 'red';
++	ctx.fillRect(100, 100, 200, 200);
++  
++  printpreview();
++  ctx1.drawWindow(window.frames[1], 0, 0, 300, 300, "rgb(256,256,256)");
++}
++
+ function startTest1() {
+   ctx1 = document.getElementsByTagName("canvas")[0].getContext("2d");
+   ctx2 = document.getElementsByTagName("canvas")[1].getContext("2d");
+@@ -136,7 +162,7 @@
+   // And readd.
+   addHTMLContent(window.frames[0].document.body.lastChild);
+ 
+-  setTimeout(finalizeTest1, 1000);
++  // setTimeout(finalizeTest1, 1000);
+ }
+ 
+ function finalizeTest1() {
+diff --git a/layout/base/tests/chrome/printpreview_print_callback_helper.xul b/layout/base/tests/chrome/printpreview_print_callback_helper.xul
+new file mode 100644
+--- /dev/null
++++ b/layout/base/tests/chrome/printpreview_print_callback_helper.xul
+@@ -0,0 +1,16 @@
++<?xml version="1.0"?>
++<?xml-stylesheet type="text/css" href="chrome://global/skin"?>
++<?xml-stylesheet href="chrome://mochikit/content/tests/SimpleTest/test.css"
++                 type="text/css"?>
++<window onload="runTests()"
++        xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
++<script type="application/javascript" src="helper.js"></script>
++<iframe height="200" width="600" type="content"></iframe>
++<iframe height="200" width="600" type="content"></iframe>
++<table style="border: 1px solid black;" xmlns="http://www.w3.org/1999/xhtml">
++<tr><th>Print preview canvas 1</th><th>Print preview canvas 2</th></tr>
++<tr>
++<td><canvas height="300" width="300"></canvas></td>
++<td><canvas height="300" width="300"></canvas></td>
++</tr></table>
++</window>
+diff --git a/layout/base/tests/chrome/test_printpreview_print_callback.xul b/layout/base/tests/chrome/test_printpreview_print_callback.xul
+new file mode 100644
+--- /dev/null
++++ b/layout/base/tests/chrome/test_printpreview_print_callback.xul
+@@ -0,0 +1,16 @@
++<?xml version="1.0"?>
++<?xml-stylesheet type="text/css" href="chrome://global/skin"?>
++<?xml-stylesheet href="chrome://mochikit/content/tests/SimpleTest/test.css"
++                 type="text/css"?>
++<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul">
++  <script type="application/javascript"
++          src="chrome://mochikit/content/tests/SimpleTest/SimpleTest.js"></script>
++<body xmlns="http://www.w3.org/1999/xhtml">
++</body>
++  <!-- test code goes here -->
++<script type="application/javascript">
++<![CDATA[
++SimpleTest.waitForExplicitFinish();
++window.open("printpreview_print_callback_helper.xul", "printpreview_print_callback", "chrome,width=700,height=800");
++]]></script>
++</window>

@@ -9,4 +9,5 @@ f57fc46d60037543a28098b7a0956a2bef3652ad:pc/force-thebes.diff
 6d8ab738d546cc70a76e52cab74a24e565921d47:pc/prePagePrint-HandlePrintCallback.diff
 5911f2084edd4310843291d7675b0383c124d63b:pc/fix-layout-print.diff
 fdd207d2b3c4e0d94e89d9ff8d54b0a5b3374abd:pc/fix-preview-rerender.diff
-84db17a02bfc9d6e0780bf8d536390d68259775f:pc/first-unit-test-preview.diff
+2fd97a8966398241d80061529481169c02a22641:pc/first-unit-test-preview.diff
+0a2a0ce4aff0d7b65eada2231278773092da3eb7:pc/fix-pdf-raster.diff

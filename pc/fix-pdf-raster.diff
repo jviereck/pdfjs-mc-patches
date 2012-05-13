@@ -1,0 +1,112 @@
+# HG changeset patch
+# Parent 2fd97a8966398241d80061529481169c02a22641
+
+diff --git a/gfx/thebes/gfxContext.cpp b/gfx/thebes/gfxContext.cpp
+--- a/gfx/thebes/gfxContext.cpp
++++ b/gfx/thebes/gfxContext.cpp
+@@ -1394,7 +1394,18 @@
+ gfxContext::SetPattern(gfxPattern *pattern)
+ {
+   if (mCairo) {
+-    cairo_set_source(mCairo, pattern->CairoPattern());
++    cairo_pattern_t *cPattern = pattern->CairoPattern();
++    
++    // A PDFSurface rasterizes the pattern if the extend is EXTEND_PAD.
++    // Prevent this by setting the pattern's extent to EXTEND_NONE.
++    if (mSurface->GetType() == gfxASurface::SurfaceTypePDF) {
++      gfxPattern::GraphicsExtend extend = (gfxPattern::GraphicsExtend)cairo_pattern_get_extend(cPattern);
++      if (extend == gfxPattern::EXTEND_PAD) {
++        cairo_pattern_set_extend(cPattern, (cairo_extend_t)gfxPattern::EXTEND_NONE);
++      }
++    }
++
++    cairo_set_source(mCairo, cPattern);
+   } else {
+     CurrentState().sourceSurface = NULL;
+     CurrentState().patternTransformChanged = false;
+@@ -2090,4 +2101,4 @@
+     state.patternTransform = mDT->GetTransform();
+     state.patternTransformChanged = true;
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/gfx/thebes/gfxPDFSurface.cpp b/gfx/thebes/gfxPDFSurface.cpp
+--- a/gfx/thebes/gfxPDFSurface.cpp
++++ b/gfx/thebes/gfxPDFSurface.cpp
+@@ -35,6 +35,7 @@
+  *
+  * ***** END LICENSE BLOCK ***** */
+ 
++#include "gfxPattern.h"
+ #include "gfxPDFSurface.h"
+ 
+ #include "cairo.h"
+diff --git a/gfx/thebes/gfxPDFSurface.h b/gfx/thebes/gfxPDFSurface.h
+--- a/gfx/thebes/gfxPDFSurface.h
++++ b/gfx/thebes/gfxPDFSurface.h
+@@ -50,6 +50,8 @@
+     gfxPDFSurface(nsIOutputStream *aStream, const gfxSize& aSizeInPoints);
+     virtual ~gfxPDFSurface();
+ 
++    void SetPattern(gfxPattern *pattern);
++
+     // virtual already_AddRefed<gfxASurface> CreateSimilarSurface(gfxContentType aType, const gfxIntSize& aSize);
+ 
+     virtual nsresult BeginPrinting(const nsAString& aTitle, const nsAString& aPrintToFileName);
+diff --git a/gfx/thebes/gfxPattern.cpp b/gfx/thebes/gfxPattern.cpp
+--- a/gfx/thebes/gfxPattern.cpp
++++ b/gfx/thebes/gfxPattern.cpp
+@@ -294,21 +294,6 @@
+ {
+   if (mPattern) {
+     mStops = NULL;
+-    if (extend == EXTEND_PAD) {
+-      if (cairo_pattern_get_type(mPattern) == CAIRO_PATTERN_TYPE_SURFACE) {
+-          cairo_surface_t *surf = NULL;
+-
+-          cairo_pattern_get_surface (mPattern, &surf);
+-          if (surf) {
+-              switch (cairo_surface_get_type(surf)) {
+-                  case CAIRO_SURFACE_TYPE_RECORDING:
+-                    printf("=== SetExtend: PREVENT = NONE\n");
+-                    extend = EXTEND_NONE;
+-                    break;
+-              }
+-         }
+-      }
+-    }
+     if (extend == EXTEND_PAD_EDGE) {
+         if (cairo_pattern_get_type(mPattern) == CAIRO_PATTERN_TYPE_SURFACE) {
+             cairo_surface_t *surf = NULL;
+@@ -316,10 +301,6 @@
+             cairo_pattern_get_surface (mPattern, &surf);
+             if (surf) {
+                 switch (cairo_surface_get_type(surf)) {
+-                    case CAIRO_SURFACE_TYPE_RECORDING:
+-                      printf("=== SetExtend: PREVENT = NONE\n");
+-                      extend = EXTEND_NONE;
+-                      break;
+                     case CAIRO_SURFACE_TYPE_WIN32_PRINTING:
+                     case CAIRO_SURFACE_TYPE_QUARTZ:
+                         extend = EXTEND_NONE;
+@@ -338,6 +319,19 @@
+         if (extend == EXTEND_PAD_EDGE)
+             extend = EXTEND_PAD;
+     }
++    // If rendering a pattern, that is based on a surface, to a PDFSurface
++    // output
++    if (extend == EXTEND_PAD) {
++      if (cairo_pattern_get_type(mPattern) == CAIRO_PATTERN_TYPE_SURFACE) {
++          cairo_surface_t *surf = NULL;
++
++          cairo_pattern_get_surface (mPattern, &surf);
++          if (surf && 
++              cairo_surface_get_type(surf) == CAIRO_SURFACE_TYPE_RECORDING) {
++            extend = EXTEND_NONE;
++         }
++      }
++    }
+ 
+     cairo_pattern_set_extend(mPattern, (cairo_extend_t)extend);
+   } else {

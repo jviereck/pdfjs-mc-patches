@@ -4,7 +4,7 @@
 diff --git a/gfx/thebes/gfxContext.cpp b/gfx/thebes/gfxContext.cpp
 --- a/gfx/thebes/gfxContext.cpp
 +++ b/gfx/thebes/gfxContext.cpp
-@@ -1394,7 +1394,18 @@
+@@ -1394,7 +1394,23 @@
  gfxContext::SetPattern(gfxPattern *pattern)
  {
    if (mCairo) {
@@ -13,18 +13,23 @@ diff --git a/gfx/thebes/gfxContext.cpp b/gfx/thebes/gfxContext.cpp
 +    
 +    // A PDFSurface rasterizes the pattern if the extend is EXTEND_PAD.
 +    // Prevent this by setting the pattern's extent to EXTEND_NONE.
-+    if (mSurface->GetType() == gfxASurface::SurfaceTypePDF) {
-+      gfxPattern::GraphicsExtend extend = (gfxPattern::GraphicsExtend)cairo_pattern_get_extend(cPattern);
-+      if (extend == gfxPattern::EXTEND_PAD) {
-+        cairo_pattern_set_extend(cPattern, (cairo_extend_t)gfxPattern::EXTEND_NONE);
-+      }
++    gfxASurface::gfxSurfaceType type = mSurface->GetType();
++    if (type == gfxASurface::SurfaceTypeWin32Printing ||
++        type == gfxASurface::SurfaceTypePDF ||
++        type == gfxASurface::SurfaceTypePS)
++    {
++        gfxPattern::GraphicsExtend extend = 
++          (gfxPattern::GraphicsExtend)cairo_pattern_get_extend(cPattern);
++        if (extend == gfxPattern::EXTEND_PAD) {
++          cairo_pattern_set_extend(cPattern, (cairo_extend_t)gfxPattern::EXTEND_NONE);
++        }
 +    }
 +
 +    cairo_set_source(mCairo, cPattern);
    } else {
      CurrentState().sourceSurface = NULL;
      CurrentState().patternTransformChanged = false;
-@@ -2090,4 +2101,4 @@
+@@ -2090,4 +2106,4 @@
      state.patternTransform = mDT->GetTransform();
      state.patternTransformChanged = true;
    }

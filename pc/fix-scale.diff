@@ -1,0 +1,244 @@
+# HG changeset patch
+# Parent a20739289dd34742aead218b7ac1f9e3287cc6ea
+
+diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+--- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
++++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+@@ -467,7 +467,7 @@
+ 
+     // Member vars
+     PRInt32 mWidth, mHeight;
+-    PRInt32 mExternalWidth, mExternalHeight;
++    PRInt32 mCanvasWidth, mCanvasHeight;
+     bool mExternalScale;
+     float mExternalScaleX, mExternalScaleY;
+     bool mValid;
+@@ -1043,8 +1043,8 @@
+ nsCanvasRenderingContext2D::Redraw()
+ {
+     printf("CRC2d::Redraw\n");
+-    if (mIsEntireFrameInvalid)
+-        return NS_OK;
++    // if (mIsEntireFrameInvalid)
++    //     return NS_OK;
+     mIsEntireFrameInvalid = true;
+ 
+     if (!mCanvasElement) {
+@@ -1054,8 +1054,9 @@
+ 
+     nsSVGEffects::InvalidateDirectRenderingObservers(HTMLCanvasElement());
+ 
++    HTMLCanvasElement()->InvalidateCanvasContent(nsnull);
++
+     printf("CRC2d::Redraw - Done\n");
+-    HTMLCanvasElement()->InvalidateCanvasContent(nsnull);
+ 
+     return NS_OK;
+ }
+@@ -1066,13 +1067,13 @@
+     printf("CRC2d::Redraw - rect\n");
+     ++mInvalidateCount;
+ 
+-    if (mIsEntireFrameInvalid)
+-        return NS_OK;
+-
+-    if (mPredictManyRedrawCalls ||
+-        mInvalidateCount > kCanvasMaxInvalidateCount) {
+-        return Redraw();
+-    }
++    // if (mIsEntireFrameInvalid)
++    //     return NS_OK;
++
++    // if (mPredictManyRedrawCalls ||
++    //     mInvalidateCount > kCanvasMaxInvalidateCount) {
++    //     return Redraw();
++    // }
+ 
+     if (!mCanvasElement) {
+         NS_ASSERTION(mDocShell, "Redraw with no canvas element or docshell!");
+@@ -1081,8 +1082,9 @@
+ 
+     nsSVGEffects::InvalidateDirectRenderingObservers(HTMLCanvasElement());
+ 
++    HTMLCanvasElement()->InvalidateCanvasContent(&r);
++
+     printf("CRC2d::Redraw - rect - done\n");
+-    HTMLCanvasElement()->InvalidateCanvasContent(&r);
+ 
+     return NS_OK;
+ }
+@@ -1114,22 +1116,26 @@
+  * the context keeps the current "dimensions".
+  */
+ NS_IMETHODIMP
+-nsCanvasRenderingContext2D::AdjustToSize(PRInt32 width, PRInt32 height)
++nsCanvasRenderingContext2D::AdjustToSize(PRInt32 aWidth, PRInt32 aHeight)
+ {
+     if (!EnsureSurface())
+         return NS_ERROR_FAILURE;
+ 
+-    if (width == 0 || height == 0)
++    if (aWidth == 0 || aHeight == 0)
+         return NS_ERROR_FAILURE;
+ 
+-    PRInt32 oldWidth = mWidth, oldHeight = mHeight;
+-
+-    SetDimensions(width, height);
+-    mExternalWidth = width;
+-    mExternalHeight = height;
+-    mExternalScaleX = ((float)mWidth)/((float)oldWidth);
+-    mExternalScaleY = ((float)mHeight)/((float)oldHeight);
++    PRInt32 canvasWidth = mCanvasWidth, canvasHeight = mCanvasHeight;
++
++    // Sets the new dimension of the surface AND the internal canvas size.
++    // Have to reset the internally stored canvasSize afterwards again.
++    SetDimensions(aWidth, aHeight);
++    mCanvasWidth = canvasWidth;
++    mCanvasHeight = canvasHeight;
++    
++    mExternalScaleX = ((float)aWidth)/((float)canvasWidth);
++    mExternalScaleY = ((float)aHeight)/((float)canvasHeight);
+     mExternalScale = true;
++    
+     Scale(mExternalScaleX, mExternalScaleY);
+ 
+     return NS_OK;
+@@ -1143,9 +1149,9 @@
+     NS_ASSERTION(!docShell ^ !mCanvasElement, "Cannot set both docshell and canvas element");
+     mDocShell = docShell;
+ 
+-    mWidth = mExternalWidth = width;
++    mWidth = mCanvasWidth = width;
+     mExternalScaleX = 1.0;
+-    mHeight = mExternalHeight = height;
++    mHeight = mCanvasHeight = height;
+     mExternalScaleY = 1.0;
+     mExternalScale = false;
+ 
+@@ -1230,8 +1236,8 @@
+             mWidth = 1;
+             mExternalScaleX = 1.0;
+             mExternalScaleY = 1.0;
+-            mExternalHeight = 1;
+-            mExternalWidth = 1;
++            mCanvasHeight = 1;
++            mCanvasWidth = 1;
+             mExternalScale = false;
+         } else {
+             mZero = false;
+@@ -4027,8 +4033,10 @@
+     if (tmpctx->HasError())
+         return NS_ERROR_FAILURE;
+ 
++    printf("=== GetImageDataArray\n");
++
+     if (!mZero) {
+-        gfxRect srcRect(0, 0, mExternalWidth, mExternalHeight);
++        gfxRect srcRect(0, 0, mCanvasWidth, mCanvasHeight);
+         gfxRect destRect(aX, aY, aWidth, aHeight);
+ 
+         bool finishedPainting = false;
+@@ -4041,13 +4049,14 @@
+             // Set clipping region if necessary.
+             if (!finishedPainting) {
+                 tmpctx->Rectangle(tmp);
++                printf("=== GetImageDataArray:Rectangle\n");
+             }
+         }
+ 
+         if (!finishedPainting) {
+             tmpctx->Scale(1.0/mExternalScaleX, 1.0/mExternalScaleY);
+             tmpctx->SetOperator(gfxContext::OPERATOR_SOURCE);
+-            tmpctx->SetSource(mSurface, gfxPoint(-aX, -aY));
++            tmpctx->SetSource(mSurface, gfxPoint(-aX * mExternalScaleX, -aY * mExternalScaleY));
+             tmpctx->Paint();
+         }
+     }
+@@ -4164,7 +4173,7 @@
+     }
+ 
+     dirtyRect.MoveBy(gfxPoint(x, y));
+-    dirtyRect = gfxRect(0, 0, mExternalWidth, mExternalHeight).Intersect(dirtyRect);
++    dirtyRect = gfxRect(0, 0, mCanvasWidth, mCanvasHeight).Intersect(dirtyRect);
+ 
+     if (dirtyRect.Width() <= 0 || dirtyRect.Height() <= 0)
+         return NS_OK;
+@@ -4191,7 +4200,7 @@
+             PRUint8 b = *src++;
+             PRUint8 a = *src++;
+ 
+-            // Convert to premultiplied color (losslessly if the input came from getImageData)
++            // Convert to premultiplied color (losslessly if the input came from  )
+ #ifdef IS_LITTLE_ENDIAN
+             *dst++ = sPremultiplyTable[a][b];
+             *dst++ = sPremultiplyTable[a][g];
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -92,8 +92,9 @@
+ 
+   NS_IMETHOD Done()
+   {
+-    printf("CPS::Done\n");
+     mIsDone = true;
++    mContext->Redraw(gfxRect(0, 0, 5000, 5000));
++    printf("=== CPS::Done -> Redraw!\n");
+     return NS_OK;
+   }
+ 
+@@ -269,9 +270,11 @@
+ nsresult
+ nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
+ {
++  printf("=== CE::CopyInnerTo\n");
+   nsresult rv = nsGenericHTMLElement::CopyInnerTo(aDest);
+   NS_ENSURE_SUCCESS(rv, rv);
+   if (aDest->OwnerDoc()->IsStaticDocument()) {
++    printf("=== CE::CopyInnerTo::IsStaticDocument\n");
+     nsHTMLCanvasElement* dest = static_cast<nsHTMLCanvasElement*>(aDest);
+     nsHTMLCanvasElement* self = const_cast<nsHTMLCanvasElement*>(this);
+ 
+@@ -282,6 +285,7 @@
+     // Mark the canvas to be a "PrintCanvas" in case there is a special
+     // rendering callback for printing.
+     if (dest->mPrintCallback) {
++      printf("=== CE::CopyInnerTo::IsStaticDocument::hazPrintCallback\n");
+       dest->mIsPrintCanvas = true;
+     }
+ 
+@@ -842,7 +846,7 @@
+   // We don't need to flush anything here; if there's no frame or if
+   // we plan to reframe we don't need to invalidate it anyway.
+   nsIFrame *frame = GetPrimaryFrame();
+-  printf("=== CE::InvalidateCanvasContent: %s\n", frame? "t" : "f");
++  printf("=== CE::InvalidateCanvasContentFOO: %s\n", frame? "t" : "f");
+   if (!frame) {
+     printf("=== CE::InvalidateCanvasContent - NO FRAME\n");
+     return;
+diff --git a/layout/base/tests/chrome/printpreview_helper.xul b/layout/base/tests/chrome/printpreview_helper.xul
+--- a/layout/base/tests/chrome/printpreview_helper.xul
++++ b/layout/base/tests/chrome/printpreview_helper.xul
+@@ -75,6 +75,7 @@
+   var printService = Components.classes["@mozilla.org/gfx/printsettings-service;1"]
+                                .getService(Components.interfaces.nsIPrintSettingsService);
+ 
++/*
+   try {
+     Components.classes["@mozilla.org/gfx/printerenumerator;1"]
+               .getService(Components.interfaces.nsIPrinterEnumerator);
+@@ -83,6 +84,7 @@
+     finish();
+     return;
+   }
++*/
+ 
+   if (printService.defaultPrinterName != '') {
+     startTest1();
+diff --git a/layout/reftests/printing/reftest.list b/layout/reftests/printing/reftest.list
+--- a/layout/reftests/printing/reftest.list
++++ b/layout/reftests/printing/reftest.list
+@@ -21,3 +21,4 @@
+ == 626395-2d.html 626395-2-ref.html
+ == 652178-1.html 652178-1-ref.html
+ == 652178-1.html 652178-1-ref2.html
++== mpc-preview.html mpc-preview-ref.html

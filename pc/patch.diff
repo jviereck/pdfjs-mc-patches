@@ -15,7 +15,7 @@ diff --git a/content/canvas/public/nsICanvasRenderingContextInternal.h b/content
 diff --git a/content/canvas/src/WebGLContext.cpp b/content/canvas/src/WebGLContext.cpp
 --- a/content/canvas/src/WebGLContext.cpp
 +++ b/content/canvas/src/WebGLContext.cpp
-@@ -327,6 +327,14 @@
+@@ -351,6 +351,14 @@
      return NS_OK;
  }
  
@@ -33,7 +33,7 @@ diff --git a/content/canvas/src/WebGLContext.cpp b/content/canvas/src/WebGLConte
 diff --git a/content/canvas/src/WebGLContext.h b/content/canvas/src/WebGLContext.h
 --- a/content/canvas/src/WebGLContext.h
 +++ b/content/canvas/src/WebGLContext.h
-@@ -544,6 +544,7 @@
+@@ -599,6 +599,7 @@
      }
  
      NS_IMETHOD SetDimensions(PRInt32 width, PRInt32 height);
@@ -163,7 +163,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      mThebes->SetMatrix(newCTM);
  
      return NS_OK;
-@@ -3957,7 +4016,7 @@
+@@ -3960,7 +4019,7 @@
          return NS_ERROR_FAILURE;
  
      if (!mZero) {
@@ -172,7 +172,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
          gfxRect destRect(aX, aY, aWidth, aHeight);
  
          bool finishedPainting = false;
-@@ -3974,6 +4033,7 @@
+@@ -3977,6 +4036,7 @@
          }
  
          if (!finishedPainting) {
@@ -180,7 +180,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
              tmpctx->SetOperator(gfxContext::OPERATOR_SOURCE);
              tmpctx->SetSource(mSurface, gfxPoint(-aX, -aY));
              tmpctx->Paint();
-@@ -4092,7 +4152,7 @@
+@@ -4095,7 +4155,7 @@
      }
  
      dirtyRect.MoveBy(gfxPoint(x, y));
@@ -189,7 +189,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
  
      if (dirtyRect.Width() <= 0 || dirtyRect.Height() <= 0)
          return NS_OK;
-@@ -4141,6 +4201,7 @@
+@@ -4144,6 +4204,7 @@
      mThebes->ResetClip();
  
      mThebes->IdentityMatrix();
@@ -226,7 +226,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp b/content/ca
 diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
 --- a/content/html/content/public/nsHTMLCanvasElement.h
 +++ b/content/html/content/public/nsHTMLCanvasElement.h
-@@ -203,6 +203,10 @@
+@@ -200,6 +200,10 @@
                              nsICanvasRenderingContextInternal **aContext);
  
    nsString mCurrentContextId;
@@ -237,7 +237,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
    nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
    
  public:
-@@ -211,6 +215,12 @@
+@@ -208,6 +212,12 @@
    // We also transitively set it when script paints a canvas which
    // is itself write-only.
    bool                     mWriteOnly;
@@ -365,7 +365,7 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
 +  void render(in nsISupports ctx);
 +};
 +
- [scriptable, uuid(21296a59-25d8-45fb-8c27-290044c88922)]
+ [scriptable, uuid(5929542B-C68E-48AB-84F9-D9642DA39720)]
  interface nsIDOMHTMLCanvasElement : nsIDOMHTMLElement
  {
 @@ -88,5 +93,7 @@
@@ -401,7 +401,7 @@ diff --git a/gfx/thebes/gfxASurface.cpp b/gfx/thebes/gfxASurface.cpp
 diff --git a/gfx/thebes/gfxASurface.h b/gfx/thebes/gfxASurface.h
 --- a/gfx/thebes/gfxASurface.h
 +++ b/gfx/thebes/gfxASurface.h
-@@ -208,6 +208,9 @@
+@@ -207,6 +207,9 @@
      void SetSubpixelAntialiasingEnabled(bool aEnabled);
      bool GetSubpixelAntialiasingEnabled();
  
@@ -426,7 +426,7 @@ diff --git a/gfx/thebes/gfxContext.h b/gfx/thebes/gfxContext.h
 diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasFrame.cpp
 --- a/layout/generic/nsHTMLCanvasFrame.cpp
 +++ b/layout/generic/nsHTMLCanvasFrame.cpp
-@@ -292,6 +292,9 @@
+@@ -294,6 +294,9 @@
    nsHTMLCanvasElement* element = static_cast<nsHTMLCanvasElement*>(GetContent());
    nsIntSize canvasSize = GetCanvasSize();
  

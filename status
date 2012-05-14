@@ -1,12 +1,1 @@
-e530e96315f37417ad0feed5b741a81025127738:pc/patch.diff
-4f655b5cc909d02e4641f8e1ca077951e1107ac5:pc/fix-01.diff
-c2d43aaabd7114cffe9cbb2db34d4140b2f9fca6:pc/fix-02.diff
-dfed4ad8c0078ed92e8ddbe087ed843726563601:pc/fix-03.diff
-a8172a93c80e639e105b879e793de5c5742b1f2d:pc/force-thebes.diff
-2faea1657be95bf3268c3d492e0ef9b5065c191d:pc/param.diff
-3ce1a9707d2a65cc04842b7c8a1e79e4d8daac37:pc/backup.diff
-f0fbe87fb9777cfca9e9df20187975105287229d:pc/prePagePrint.diff
-6527754c8f1a65add2e2b954ca67eae74eab6c7b:pc/prePagePrint-HandlePrintCallback.diff
-f09de9cae7f007f16f8689e861432c4b38d596db:pc/fix-layout-print.diff
-a470ec84d2e003956cebd804d572be8870b471f1:pc/fix-preview-rerender.diff
-c59dafb8686837396911301d61539a5dfc8d1c1d:pc/fix-scale.diff
+dd5be63c7203e2c0095960456a76c53782120315:pc/00r-base.diff

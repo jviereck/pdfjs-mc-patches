@@ -1,0 +1,56 @@
+# HG changeset patch
+# Parent d847d6f3af5cb4a8296bc3ab207714b939bf958a
+
+diff --git a/layout/style/nsFontFaceLoader.cpp b/layout/style/nsFontFaceLoader.cpp
+--- a/layout/style/nsFontFaceLoader.cpp
++++ b/layout/style/nsFontFaceLoader.cpp
+@@ -285,31 +285,36 @@ nsFontFaceLoader::CheckLoadAllowed(nsIPr
+   nsIScriptSecurityManager *secMan = nsContentUtils::GetSecurityManager();
+   rv = secMan->CheckLoadURIWithPrincipal(aSourcePrincipal, aTargetURI,
+                                         nsIScriptSecurityManager::STANDARD);
+   if (NS_FAILED(rv)) {
+     return rv;
+   }
+ 
+   // check content policy
+-  PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
+-  rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_FONT,
+-                                 aTargetURI,
+-                                 aSourcePrincipal,
+-                                 aContext,
+-                                 EmptyCString(), // mime type
+-                                 nsnull,
+-                                 &shouldLoad,
+-                                 nsContentUtils::GetContentPolicy(),
+-                                 nsContentUtils::GetSecurityManager());
++  nsCAutoString spec;
++  aTargetURI->GetSpec(spec);
+ 
+-  if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
+-    return NS_ERROR_CONTENT_BLOCKED;
++  // XXX Workaround: Don't check policy for data:url-fonts.
++  if (spec.Find("data:font") != 0) {
++    PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
++    rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_FONT,
++                                   aTargetURI,
++                                   aSourcePrincipal,
++                                   aContext,
++                                   EmptyCString(), // mime type
++                                   nsnull,
++                                   &shouldLoad,
++                                   nsContentUtils::GetContentPolicy(),
++                                   nsContentUtils::GetSecurityManager());
++
++    if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
++      return NS_ERROR_CONTENT_BLOCKED;
++    }
+   }
+-
+   return NS_OK;
+ }
+ 
+ nsUserFontSet::nsUserFontSet(nsPresContext *aContext)
+   : mPresContext(aContext)
+ {
+   NS_ASSERTION(mPresContext, "null context passed to nsUserFontSet");
+   mLoaders.Init();

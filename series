@@ -1,9 +1,19 @@
+pc/print-font.diff
+pc/print-font-2.diff
+# ==============================================================================
+# Patches for pdf-rastering: https://bugzilla.mozilla.org/show_bug.cgi?id=691061
+# pc/pdf-raster-patch.diff
+# pc/try
+
+#----------------------
+
 pc/00r-base.diff
 pc/00-patch.diff
 pc/01-fix-01.diff
 pc/02-fix-02.diff
 pc/03-fix-03.diff
 pc/04-force-thebes.diff
+# ---------------------
 pc/param.diff
 pc/backup.diff
 #pc/param-try-to-fix_failed.diff

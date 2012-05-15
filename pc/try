@@ -1,0 +1,4 @@
+# HG changeset patch
+# Parent dd9e6547b183682c850eac341d5501bb7f79d0a9
+try: -b do -p linux,linuxqt,linux64,macosx64,win32,win64,android,android-xul -u all -t none
+

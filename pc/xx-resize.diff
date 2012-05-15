@@ -1,0 +1,563 @@
+diff --git a/content/canvas/public/nsICanvasRenderingContextInternal.h b/content/canvas/public/nsICanvasRenderingContextInternal.h
+--- a/content/canvas/public/nsICanvasRenderingContextInternal.h
++++ b/content/canvas/public/nsICanvasRenderingContextInternal.h
+@@ -86,6 +86,8 @@
+   // whenever the size of the element changes.
+   NS_IMETHOD SetDimensions(PRInt32 width, PRInt32 height) = 0;
+ 
++  NS_IMETHOD AdjustToSize(PRInt32 width, PRInt32 height) = 0;
++
+   NS_IMETHOD InitializeWithSurface(nsIDocShell *docShell, gfxASurface *surface, PRInt32 width, PRInt32 height) = 0;
+ 
+   // Render the canvas at the origin of the given gfxContext
+diff --git a/content/canvas/src/WebGLContext.cpp b/content/canvas/src/WebGLContext.cpp
+--- a/content/canvas/src/WebGLContext.cpp
++++ b/content/canvas/src/WebGLContext.cpp
+@@ -351,6 +351,14 @@
+     return NS_OK;
+ }
+ 
++
++NS_IMETHODIMP
++WebGLContext::AdjustToSize(PRInt32 width, PRInt32 height)
++{
++  // TODO: Implement me!
++  return NS_OK;
++}
++
+ NS_IMETHODIMP
+ WebGLContext::SetDimensions(PRInt32 width, PRInt32 height)
+ {
+diff --git a/content/canvas/src/WebGLContext.h b/content/canvas/src/WebGLContext.h
+--- a/content/canvas/src/WebGLContext.h
++++ b/content/canvas/src/WebGLContext.h
+@@ -599,6 +599,7 @@
+     }
+ 
+     NS_IMETHOD SetDimensions(PRInt32 width, PRInt32 height);
++    NS_IMETHOD AdjustToSize(PRInt32 width, PRInt32 height);
+     NS_IMETHOD InitializeWithSurface(nsIDocShell *docShell, gfxASurface *surface, PRInt32 width, PRInt32 height)
+         { return NS_ERROR_NOT_IMPLEMENTED; }
+     NS_IMETHOD Reset()
+diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+--- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
++++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
+@@ -347,6 +347,8 @@
+ 
+     // nsICanvasRenderingContextInternal
+     NS_IMETHOD SetCanvasElement(nsHTMLCanvasElement* aParentCanvas);
++    NS_IMETHOD AdjustToSize(PRInt32 width, PRInt32 height);
++    void ExternalScaleMatrix(gfxMatrix &matrix);
+     NS_IMETHOD SetDimensions(PRInt32 width, PRInt32 height);
+     void Initialize(nsIDocShell *shell, PRInt32 width, PRInt32 height);
+     NS_IMETHOD InitializeWithSurface(nsIDocShell *shell, gfxASurface *surface, PRInt32 width, PRInt32 height);
+@@ -465,6 +467,9 @@
+ 
+     // Member vars
+     PRInt32 mWidth, mHeight;
++    PRInt32 mExternalWidth, mExternalHeight;
++    bool mExternalScale;
++    float mExternalScaleX, mExternalScaleY;
+     bool mValid;
+     bool mZero;
+     bool mOpaque;
+@@ -831,12 +836,14 @@
+ }
+ 
+ nsCanvasRenderingContext2D::nsCanvasRenderingContext2D()
+-    : mValid(false), mZero(false), mOpaque(false), mResetLayer(true)
++    : mExternalScale(false)
++    , mValid(false), mZero(false), mOpaque(false), mResetLayer(true)
+     , mIPC(false)
+     , mCanvasElement(nsnull)
+     , mSaveCount(0), mIsEntireFrameInvalid(false)
+     , mPredictManyRedrawCalls(false), mHasPath(false), mInvalidateCount(0)
+     , mLastStyle(STYLE_MAX), mStyleStack(20)
++
+ {
+     sNumLivingContexts++;
+ }
+@@ -1094,6 +1101,32 @@
+     return NS_OK;
+ }
+ 
++/**
++ * Changes the size of the context to some new width/height, but for the user,
++ * the context keeps the current "dimensions".
++ */
++NS_IMETHODIMP
++nsCanvasRenderingContext2D::AdjustToSize(PRInt32 width, PRInt32 height)
++{
++    if (!EnsureSurface())
++        return NS_ERROR_FAILURE;
++
++    if (width == 0 || height == 0)
++        return NS_ERROR_FAILURE;
++
++    PRInt32 oldWidth = mWidth, oldHeight = mHeight;
++
++    SetDimensions(width, height);
++    mExternalWidth = width;
++    mExternalHeight = height;
++    mExternalScaleX = ((float)mWidth)/((float)oldWidth);
++    mExternalScaleY = ((float)mHeight)/((float)oldHeight);
++    mExternalScale = true;
++    Scale(mExternalScaleX, mExternalScaleY);
++
++    return NS_OK;
++}
++
+ void
+ nsCanvasRenderingContext2D::Initialize(nsIDocShell *docShell, PRInt32 width, PRInt32 height) 
+ {
+@@ -1102,8 +1135,11 @@
+     NS_ASSERTION(!docShell ^ !mCanvasElement, "Cannot set both docshell and canvas element");
+     mDocShell = docShell;
+ 
+-    mWidth = width;
+-    mHeight = height;
++    mWidth = mExternalWidth = width;
++    mExternalScaleX = 1.0;
++    mHeight = mExternalHeight = height;
++    mExternalScaleY = 1.0;
++    mExternalScale = false;
+ 
+     mResetLayer = true;
+     mValid = true;
+@@ -1184,6 +1220,11 @@
+             mZero = true;
+             mHeight = 1;
+             mWidth = 1;
++            mExternalScaleX = 1.0;
++            mExternalScaleY = 1.0;
++            mExternalHeight = 1;
++            mExternalWidth = 1;
++            mExternalScale = false;
+         } else {
+             mZero = false;
+         }
+@@ -1493,6 +1534,19 @@
+     return NS_OK;
+ }
+ 
++void
++nsCanvasRenderingContext2D::ExternalScaleMatrix(gfxMatrix &matrix)
++{
++    float sx = mExternalScaleX;
++    float sy = mExternalScaleY;
++    matrix.xx *= sx;
++    matrix.xy *= sx;
++    matrix.x0 *= sx;
++    matrix.yx *= sy;
++    matrix.yy *= sy;
++    matrix.y0 *= sy;
++}
++
+ NS_IMETHODIMP
+ nsCanvasRenderingContext2D::SetTransform(float m11, float m12, float m21, float m22, float dx, float dy)
+ {
+@@ -1503,6 +1557,10 @@
+         return NS_OK;
+ 
+     gfxMatrix matrix(m11, m12, m21, m22, dx, dy);
++
++    if (mExternalScale)
++        ExternalScaleMatrix(matrix);
++
+     mThebes->SetMatrix(matrix);
+ 
+     return NS_OK;
+@@ -1522,6 +1580,9 @@
+         return rv;
+     }
+ 
++    if (mExternalScale)
++        ExternalScaleMatrix(newCTM);
++
+     mThebes->SetMatrix(newCTM);
+ 
+     return NS_OK;
+@@ -3960,7 +4021,7 @@
+         return NS_ERROR_FAILURE;
+ 
+     if (!mZero) {
+-        gfxRect srcRect(0, 0, mWidth, mHeight);
++        gfxRect srcRect(0, 0, mExternalWidth, mExternalHeight);
+         gfxRect destRect(aX, aY, aWidth, aHeight);
+ 
+         bool finishedPainting = false;
+@@ -3977,6 +4038,7 @@
+         }
+ 
+         if (!finishedPainting) {
++            tmpctx->Scale(1.0/mExternalScaleX, 1.0/mExternalScaleY);
+             tmpctx->SetOperator(gfxContext::OPERATOR_SOURCE);
+             tmpctx->SetSource(mSurface, gfxPoint(-aX, -aY));
+             tmpctx->Paint();
+@@ -4095,7 +4157,7 @@
+     }
+ 
+     dirtyRect.MoveBy(gfxPoint(x, y));
+-    dirtyRect = gfxRect(0, 0, mWidth, mHeight).Intersect(dirtyRect);
++    dirtyRect = gfxRect(0, 0, mExternalWidth, mExternalHeight).Intersect(dirtyRect);
+ 
+     if (dirtyRect.Width() <= 0 || dirtyRect.Height() <= 0)
+         return NS_OK;
+@@ -4144,6 +4206,7 @@
+     mThebes->ResetClip();
+ 
+     mThebes->IdentityMatrix();
++    mThebes->Scale(mExternalScaleX, mExternalScaleY);
+     mThebes->NewPath();
+     mThebes->Rectangle(dirtyRect);
+     mThebes->SetSource(imgsurf, gfxPoint(x, y));
+diff --git a/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp b/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
+--- a/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
++++ b/content/canvas/src/nsCanvasRenderingContext2DAzure.cpp
+@@ -402,6 +402,7 @@
+ 
+   // nsICanvasRenderingContextInternal
+   NS_IMETHOD SetCanvasElement(nsHTMLCanvasElement* aParentCanvas);
++  NS_IMETHOD AdjustToSize(PRInt32 width, PRInt32 height);
+   NS_IMETHOD SetDimensions(PRInt32 width, PRInt32 height);
+   NS_IMETHOD InitializeWithSurface(nsIDocShell *shell, gfxASurface *surface, PRInt32 width, PRInt32 height)
+   { return NS_ERROR_NOT_IMPLEMENTED; }
+@@ -1291,6 +1292,14 @@
+   return InitializeWithTarget(target, width, height);
+ }
+ 
++NS_IMETHODIMP
++nsCanvasRenderingContext2DAzure::AdjustToSize(PRInt32 width, PRInt32 height)
++{
++  // TODO: Implement me!
++  return NS_OK;
++}
++
++
+ nsresult
+ nsCanvasRenderingContext2DAzure::InitializeWithTarget(DrawTarget *target, PRInt32 width, PRInt32 height)
+ {
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
+@@ -200,6 +200,10 @@
+                             nsICanvasRenderingContextInternal **aContext);
+ 
+   nsString mCurrentContextId;
++
++  bool mIsReadyToPrint;
++
++  nsCOMPtr<nsIPrintCallback> mPrintCallback;
+   nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
+   
+ public:
+@@ -208,6 +212,12 @@
+   // We also transitively set it when script paints a canvas which
+   // is itself write-only.
+   bool                     mWriteOnly;
++
++  bool mIsPrintCanvas;
++  bool mIsPrintPreview;
++
++  bool HandlePrintCallback(nsIntSize &size);
++
+ };
+ 
+ #endif /* nsHTMLCanvasElement_h__ */
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -76,12 +76,15 @@
+ }
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+-  : nsGenericHTMLElement(aNodeInfo), mWriteOnly(false)
++  : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false), mWriteOnly(false),
++    mIsPrintCanvas(false), mIsPrintPreview(false)
+ {
+ }
+ 
+ nsHTMLCanvasElement::~nsHTMLCanvasElement()
+ {
++  mPrintCallback = NULL;
++  mCurrentContext = NULL;
+ }
+ 
+ NS_IMPL_CYCLE_COLLECTION_CLASS(nsHTMLCanvasElement)
+@@ -152,6 +155,34 @@
+   return rv;
+ }
+ 
++bool
++nsHTMLCanvasElement::HandlePrintCallback(nsIntSize &size)
++{
++  if (!mIsPrintCanvas)
++    return true;
++
++  nsresult rv;
++
++  // For print preview, resize the canvas context, such that
++  if (mIsPrintPreview) {
++    GetClientWidth(&size.width);
++    GetClientHeight(&size.height);
++
++    if (!mIsReadyToPrint) {
++      rv = mCurrentContext->AdjustToSize(size.width, size.height);
++
++      if (!NS_SUCCEEDED(rv))
++        return false;
++    }
++  }
++
++  if (!mIsReadyToPrint) {
++    mIsReadyToPrint = true;
++    mPrintCallback->Render(mCurrentContext);
++  }
++  return true;
++}
++
+ nsresult
+ nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
+ {
+@@ -159,11 +190,23 @@
+   NS_ENSURE_SUCCESS(rv, rv);
+   if (aDest->OwnerDoc()->IsStaticDocument()) {
+     nsHTMLCanvasElement* dest = static_cast<nsHTMLCanvasElement*>(aDest);
++    nsHTMLCanvasElement* self = const_cast<nsHTMLCanvasElement*>(this);
++
++    // By default, we assume this canvas will be displayed in PrintPreview.
++    dest->mIsPrintPreview = true;
++    dest->mPrintCallback = self->mPrintCallback;
++
++    // Mark the canvas to be a "PrintCanvas" in case there is a special
++    // rendering callback for printing.
++    if (dest->mPrintCallback) {
++      dest->mIsPrintCanvas = true;
++    }
++
+     nsCOMPtr<nsISupports> cxt;
+     dest->GetContext(NS_LITERAL_STRING("2d"), JSVAL_VOID, getter_AddRefs(cxt));
+     nsCOMPtr<nsIDOMCanvasRenderingContext2D> context2d = do_QueryInterface(cxt);
+     if (context2d) {
+-      context2d->DrawImage(const_cast<nsHTMLCanvasElement*>(this),
++      context2d->DrawImage(self,
+                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+     }
+   }
+@@ -247,6 +290,30 @@
+   return asyncCallback->OnInputStreamReady(asyncData);
+ }
+ 
++NS_IMETHODIMP
++nsHTMLCanvasElement::SetMozPrintCallback(nsIPrintCallback *aCallback)
++{
++  mPrintCallback = aCallback;
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsHTMLCanvasElement::GetMozPrintCallback(nsIPrintCallback** aCallback)
++{
++  return NS_OK;
++}
++/*
++NS_IMETHODIMP
++nsHTMLCanvasElement::SetMozPrintCallback(JSContext *cx, const jsval& callback)
++{
++  // Check that
++  if (JSVAL_IS_OBJECT(callback) && !JSVAL_IS_NULL(callback)) {
++    mPrintCallback = JSVAL_TO_OBJECT(callback);
++    NS_HOLD_JS_OBJECTS(this, mPrintCallback);
++  }
++}
++*/
++
+ nsresult
+ nsHTMLCanvasElement::ExtractData(const nsAString& aType,
+                                  const nsAString& aOptions,
+diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+--- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
++++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+@@ -56,6 +56,11 @@
+ interface nsIVariant;
+ interface nsIInputStreamCallback;
+ 
++[scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a66)]
++interface nsIPrintCallback : nsISupports {
++  void render(in nsISupports ctx);
++};
++
+ [scriptable, uuid(5929542B-C68E-48AB-84F9-D9642DA39720)]
+ interface nsIDOMHTMLCanvasElement : nsIDOMHTMLElement
+ {
+@@ -88,5 +93,7 @@
+   // stream in the desired image format.
+   void mozFetchAsStream(in nsIInputStreamCallback callback,
+                                         [optional] in DOMString type);
++
++  attribute nsIPrintCallback mozPrintCallback;
+ };
+ 
+diff --git a/gfx/thebes/gfxASurface.cpp b/gfx/thebes/gfxASurface.cpp
+--- a/gfx/thebes/gfxASurface.cpp
++++ b/gfx/thebes/gfxASurface.cpp
+@@ -394,6 +394,18 @@
+     return true;
+ }
+ 
++bool
++gfxASurface::GetFallbackResolution(double *aXPixPerInch, double *aYPixPerInch)
++{
++  if (mSurfaceValid) {
++    cairo_surface_get_fallback_resolution(mSurface, aXPixPerInch, aYPixPerInch);
++    return true;
++  } else {
++    return false;
++  }
++}
++
++
+ /* static */
+ PRInt32
+ gfxASurface::FormatStrideForWidth(gfxImageFormat format, PRInt32 width)
+diff --git a/gfx/thebes/gfxASurface.h b/gfx/thebes/gfxASurface.h
+--- a/gfx/thebes/gfxASurface.h
++++ b/gfx/thebes/gfxASurface.h
+@@ -207,6 +207,9 @@
+     void SetSubpixelAntialiasingEnabled(bool aEnabled);
+     bool GetSubpixelAntialiasingEnabled();
+ 
++
++    bool GetFallbackResolution(double *aXPixPerInch, double *aYPixPerInch);
++
+     /**
+      * Record number of bytes for given surface type.  Use positive bytes
+      * for allocations and negative bytes for deallocations.
+diff --git a/gfx/thebes/gfxContext.h b/gfx/thebes/gfxContext.h
+--- a/gfx/thebes/gfxContext.h
++++ b/gfx/thebes/gfxContext.h
+@@ -389,6 +389,8 @@
+      */
+     void PixelSnappedRectangleAndSetPattern(const gfxRect& rect, gfxPattern *pattern);
+ 
++    bool GetFallbackResolution(double *aXPixPerInch, double *aYPixPerInch);
++
+     /**
+      ** Painting sources
+      **/
+diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasFrame.cpp
+--- a/layout/generic/nsHTMLCanvasFrame.cpp
++++ b/layout/generic/nsHTMLCanvasFrame.cpp
+@@ -294,6 +294,9 @@
+   nsHTMLCanvasElement* element = static_cast<nsHTMLCanvasElement*>(GetContent());
+   nsIntSize canvasSize = GetCanvasSize();
+ 
++  if (!element->HandlePrintCallback(canvasSize))
++    return nsnull;
++
+   if (canvasSize.width <= 0 || canvasSize.height <= 0 || area.IsEmpty())
+     return nsnull;
+ 
+diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
+--- a/layout/generic/nsSimplePageSequence.cpp
++++ b/layout/generic/nsSimplePageSequence.cpp
+@@ -50,6 +50,8 @@
+ #include "nsContentUtils.h"
+ #include "nsDisplayList.h"
+ #include "mozilla/Preferences.h"
++#include "nsHTMLCanvasFrame.h"
++#include "nsHTMLCanvasElement.h"
+ 
+ // DateTime Includes
+ #include "nsDateTimeFormatCID.h"
+@@ -519,6 +521,38 @@
+   return rv;
+ }
+ 
++void GetCanvasElementsInFrame(nsTArray<nsRefPtr<nsHTMLCanvasElement> >* aArr, nsIFrame* aFrame)
++{
++
++  for (nsIFrame::ChildListIterator childLists(aFrame);
++    !childLists.IsDone(); childLists.Next()) {
++
++    nsFrameList children = childLists.CurrentList();
++    for (nsFrameList::Enumerator e(children); !e.AtEnd(); e.Next()) {
++      nsIFrame* child = e.get();
++
++      // Check if child is a nsHTMLCanvasFrame.
++      nsHTMLCanvasFrame *canvasFrame = do_QueryFrame(child);
++
++      // If there is a canvasFrame, try to get actual canvas element.
++      if (canvasFrame) {
++        nsHTMLCanvasElement *canvas =
++          nsHTMLCanvasElement::FromContent(canvasFrame->GetContent());
++          // CanvasElementFromContent(canvasFrame->GetContent());
++
++        if (canvas && canvas->mIsPrintCanvas) {
++          aArr->AppendElement(canvas);
++          continue;
++        }
++      }
++      // The current child is not a nsHTMLCanvasFrame OR it is but there is
++      // no nsHTMLCanvasElement on it. Check if children of `child` might
++      // contain a nsHTMLCanvasElement.
++      GetCanvasElementsInFrame(aArr, child);
++    }
++  }
++}
++
+ NS_IMETHODIMP
+ nsSimplePageSequenceFrame::PrintNextPage()
+ {
+@@ -634,10 +668,51 @@
+       nsRect drawingRect(nsPoint(0, 0),
+                          mCurrentPageFrame->GetSize());
+       nsRegion drawingRegion(drawingRect);
++
++
++      // Replace the underlaying context off all canvas that are "printCanvas".
++      nsRefPtr<gfxASurface> renderingSurface =
++          renderingContext->ThebesContext()->CurrentSurface();
++
++      nsTArray<nsRefPtr<nsHTMLCanvasElement> > canvasList;
++      GetCanvasElementsInFrame(&canvasList, mCurrentPageFrame);
++      for (PRInt32 i = canvasList.Length() - 1; i >= 0 ; i--) {
++        nsHTMLCanvasElement *canvas = canvasList[i];
++        nsIntSize size = canvas->GetSize();
++
++        nsRefPtr<gfxASurface> printSurface = renderingSurface->
++           CreateSimilarSurface(
++             gfxASurface::CONTENT_COLOR_ALPHA,
++             size
++           );
++
++        nsICanvasRenderingContextInternal *ctx = canvas->GetContextAtIndex(0);
++
++        if (!ctx)
++          continue;
++
++        // Initialize the context with the new printSurface.
++        ctx->InitializeWithSurface(NULL, printSurface, size.width, size.height);
++
++        // Only specify here, that this canvas won't be printed to preview.
++        // The actuall drawing is done once the nsHTMLCanvasFrame::BuildLayer
++        // function calls the canvas->HandlePrintCallback();
++        canvas->mIsPrintPreview = false;
++      }
++
+       nsLayoutUtils::PaintFrame(renderingContext, mCurrentPageFrame,
+                                 drawingRegion, NS_RGBA(0,0,0,0),
+                                 nsLayoutUtils::PAINT_SYNC_DECODE_IMAGES);
+ 
++      // Loop over the canvasList list again and clear out the no longer
++      // needed surface and context to save memeory.
++      for (PRInt32 i = canvasList.Length() - 1; i >= 0 ; i--) {
++        nsICanvasRenderingContextInternal *ctx = canvasList[i]->GetContextAtIndex(0);
++
++        if (ctx)
++          ctx->Reset();
++      }
++
+       if (mSelectionHeight >= 0 && selectionY < mSelectionHeight) {
+         selectionY += height;
+         printedPageNum++;

@@ -1,1 +1,2 @@
-aa4089edf211d87e3c0c7c259d92b5a3a568d4ea:pc/print-font.diff
+35a07c3f3ca1f76e8e5b8cb32a646e569beafa49:font/fix-network-01.diff
+95be80fe0871d3aec3e831a939856daf21b90588:font/load-event-font.diff

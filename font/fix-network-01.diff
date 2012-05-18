@@ -1,0 +1,334 @@
+# HG changeset patch
+# Parent ac968ff4fe413b5078a900363d091cc5aee6e2e6
+
+diff --git a/content/base/src/nsDataDocumentContentPolicy.cpp b/content/base/src/nsDataDocumentContentPolicy.cpp
+--- a/content/base/src/nsDataDocumentContentPolicy.cpp
++++ b/content/base/src/nsDataDocumentContentPolicy.cpp
+@@ -86,18 +86,19 @@ nsDataDocumentContentPolicy::ShouldLoad(
+     }
+   }
+ 
+   // DTDs are always OK to load
+   if (!doc || aContentType == nsIContentPolicy::TYPE_DTD) {
+     return NS_OK;
+   }
+ 
+-  // Nothing else is OK to load for data documents
+-  if (doc->IsLoadedAsData()) {
++  // If this is not a static document, 
++  // nothing else is OK to load for data documents
++  if (!doc->IsStaticDocument() && doc->IsLoadedAsData())  {
+     *aDecision = nsIContentPolicy::REJECT_TYPE;
+     return NS_OK;
+   }
+ 
+   if (doc->IsBeingUsedAsImage()) {
+     // We only allow SVG images to load content from URIs that are local and
+     // also satisfy one of the following conditions:
+     //  - URI inherits security context, e.g. data URIs
+diff --git a/content/base/src/nsDocument.cpp b/content/base/src/nsDocument.cpp
+--- a/content/base/src/nsDocument.cpp
++++ b/content/base/src/nsDocument.cpp
+@@ -8090,16 +8090,18 @@ nsIDocument::CreateStaticClone(nsISuppor
+ 
+   // Make document use different container during cloning.
+   nsCOMPtr<nsISupports> originalContainer = GetContainer();
+   SetContainer(aCloneContainer);
+   nsCOMPtr<nsIDOMNode> clonedNode;
+   nsresult rv = domDoc->CloneNode(true, 1, getter_AddRefs(clonedNode));
+   SetContainer(originalContainer);
+ 
++  printf("nsIDocument::CreateStaticClone - begin\n");
++
+   nsCOMPtr<nsIDocument> clonedDoc;
+   if (NS_SUCCEEDED(rv)) {
+     clonedDoc = do_QueryInterface(clonedNode);
+     if (clonedDoc) {
+       if (IsStaticDocument()) {
+         clonedDoc->mOriginalDocument = mOriginalDocument;
+       } else {
+         clonedDoc->mOriginalDocument = this;
+@@ -8131,16 +8133,18 @@ nsIDocument::CreateStaticClone(nsISuppor
+             if (clonedSheet) {
+               clonedDoc->AddCatalogStyleSheet(clonedSheet);
+             }
+           }
+         }
+       }
+     }
+   }
++  printf("nsIDocument::CreateStaticClone - end\n");
++
+   mCreatingStaticClone = false;
+   return clonedDoc.forget();
+ }
+ 
+ nsresult
+ nsIDocument::ScheduleFrameRequestCallback(nsIFrameRequestCallback* aCallback,
+                                           PRInt32 *aHandle)
+ {
+diff --git a/gfx/thebes/gfxUserFontSet.cpp b/gfx/thebes/gfxUserFontSet.cpp
+--- a/gfx/thebes/gfxUserFontSet.cpp
++++ b/gfx/thebes/gfxUserFontSet.cpp
+@@ -117,16 +117,20 @@ gfxUserFontSet::AddFontFace(const nsAStr
+                             const nsTArray<gfxFontFaceSrc>& aFontFaceSrcList,
+                             PRUint32 aWeight,
+                             PRUint32 aStretch,
+                             PRUint32 aItalicStyle,
+                             const nsTArray<gfxFontFeature>& aFeatureSettings,
+                             const nsString& aLanguageOverride,
+                             gfxSparseBitSet *aUnicodeRanges)
+ {
++    printf("gfxUserFontSet::AddFontFace %s %d\n", 
++      NS_LossyConvertUTF16toASCII(aFamilyName).get()
++      , this
++    );
+     gfxProxyFontEntry *proxyEntry = nsnull;
+ 
+     nsAutoString key(aFamilyName);
+     ToLowerCase(key);
+ 
+     bool found;
+ 
+     if (aWeight == 0)
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1654,22 +1654,37 @@ nsPrintEngine::SetupToPrintContent()
+   // The first time we do not want to do this, the second time through we do
+   bool doSetPixelScale = false;
+   bool ppIsShrinkToFit = mPrtPreview && mPrtPreview->mShrinkToFit;
+   if (ppIsShrinkToFit) {
+     mPrt->mShrinkRatio = mPrtPreview->mShrinkRatio;
+     doSetPixelScale = true;
+   }
+ 
++  printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
++
+   // Here we reflow all the PrintObjects
+   nsresult rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+   if (NS_FAILED(rv)) {
+     return NS_ERROR_FAILURE;
+   }
+ 
++  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++
++
++  printf("nsPrintEngine::SetupToPrintContent - BeginReflow 2\n");
++
++  // Here we reflow all the PrintObjects
++  rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
++  if (NS_FAILED(rv)) {
++    return NS_ERROR_FAILURE;
++  }
++
++  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview
+   if (mPrt->mShrinkToFit && !ppIsShrinkToFit) {
+     // Now look for the PO that has the smallest percent for shrink to fit
+     if (mPrt->mPrintDocList.Length() > 1 && mPrt->mPrintObject->mFrameType == eFrameSet) {
+       nsPrintObject* smallestPO = FindSmallestSTF();
+       NS_ASSERTION(smallestPO, "There must always be an XMost PO!");
+       if (smallestPO) {
+@@ -1907,94 +1922,110 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+     if (mIsCreatingPrintPreview) {
+       nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
+       if (cv) {
+         parentView = cv->FindContainerView();
+       }
+     }
+   }
+ 
+-  NS_ASSERTION(!aPO->mPresContext, "Recreating prescontext");
+-
+-  // create the PresContext
+-  aPO->mPresContext = new nsPresContext(aPO->mDocument,
+-    mIsCreatingPrintPreview ? nsPresContext::eContext_PrintPreview:
+-                              nsPresContext::eContext_Print);
+-  NS_ENSURE_TRUE(aPO->mPresContext, NS_ERROR_OUT_OF_MEMORY);
+-  aPO->mPresContext->SetPrintSettings(mPrt->mPrintSettings);
+-
+-  // set the presentation context to the value in the print settings
+-  bool printBGColors;
+-  mPrt->mPrintSettings->GetPrintBGColors(&printBGColors);
+-  aPO->mPresContext->SetBackgroundColorDraw(printBGColors);
+-  mPrt->mPrintSettings->GetPrintBGImages(&printBGColors);
+-  aPO->mPresContext->SetBackgroundImageDraw(printBGColors);
+-
+-  // init it with the DC
+-  nsresult rv = aPO->mPresContext->Init(mPrt->mPrintDC);
+-  NS_ENSURE_SUCCESS(rv, rv);
+-
+-  aPO->mViewManager = do_CreateInstance(kViewManagerCID, &rv);
+-  NS_ENSURE_SUCCESS(rv,rv);
+-
+-  rv = aPO->mViewManager->Init(mPrt->mPrintDC);
+-  NS_ENSURE_SUCCESS(rv,rv);
+-
+-  nsStyleSet* styleSet;
+-  rv = mDocViewerPrint->CreateStyleSet(aPO->mDocument, &styleSet);
+-  NS_ENSURE_SUCCESS(rv, rv);
+-
+-  rv = aPO->mDocument->CreateShell(aPO->mPresContext, aPO->mViewManager,
+-                                   styleSet, getter_AddRefs(aPO->mPresShell));
+-  if (NS_FAILED(rv)) {
+-    delete styleSet;
+-    return rv;
++  nsresult rv;
++  bool initPresContext = !aPO->mPresContext;
++  // Only create the presContext ones.
++  if (initPresContext) {
++    NS_ASSERTION(!aPO->mPresContext, "Recreating prescontext");
++
++    // create the PresContext
++    aPO->mPresContext = new nsPresContext(aPO->mDocument,
++      mIsCreatingPrintPreview ? nsPresContext::eContext_PrintPreview:
++                                nsPresContext::eContext_Print);
++    NS_ENSURE_TRUE(aPO->mPresContext, NS_ERROR_OUT_OF_MEMORY);
++
++    aPO->mPresContext->SetPrintSettings(mPrt->mPrintSettings);
++
++    // set the presentation context to the value in the print settings
++    bool printBGColors;
++    mPrt->mPrintSettings->GetPrintBGColors(&printBGColors);
++    aPO->mPresContext->SetBackgroundColorDraw(printBGColors);
++    mPrt->mPrintSettings->GetPrintBGImages(&printBGColors);
++    aPO->mPresContext->SetBackgroundImageDraw(printBGColors);
++
++    // init it with the DC
++    rv = aPO->mPresContext->Init(mPrt->mPrintDC);
++    NS_ENSURE_SUCCESS(rv, rv);
++
++    aPO->mViewManager = do_CreateInstance(kViewManagerCID, &rv);
++    NS_ENSURE_SUCCESS(rv,rv);
++
++    rv = aPO->mViewManager->Init(mPrt->mPrintDC);
++    NS_ENSURE_SUCCESS(rv,rv);
++
++    nsStyleSet* styleSet;
++    rv = mDocViewerPrint->CreateStyleSet(aPO->mDocument, &styleSet);
++    NS_ENSURE_SUCCESS(rv, rv);
++
++    rv = aPO->mDocument->CreateShell(aPO->mPresContext, aPO->mViewManager,
++                                     styleSet, getter_AddRefs(aPO->mPresShell));
++    if (NS_FAILED(rv)) {
++      delete styleSet;
++      return rv;
++    }
++
++    styleSet->EndUpdate();
++    
++    // The pres shell now owns the style set object.
++
++    PR_PL(("In DV::ReflowPrintObject PO: %p (%9s) Setting w,h to %d,%d\n", aPO,
++           gFrameTypesStr[aPO->mFrameType], adjSize.width, adjSize.height));
++
++    // Create a child window of the parent that is our "root view/window"
++    nsRect tbounds = nsRect(nsPoint(0, 0), adjSize);
++    nsIView* rootView = aPO->mViewManager->CreateView(tbounds, parentView);
++    NS_ENSURE_TRUE(rootView, NS_ERROR_OUT_OF_MEMORY);
++
++    if (mIsCreatingPrintPreview && documentIsTopLevel) {
++      aPO->mPresContext->SetPaginatedScrolling(canCreateScrollbars);
++    }
++
++    // Setup hierarchical relationship in view manager
++    aPO->mViewManager->SetRootView(rootView);
++
++    // This docshell stuff is weird; will go away when we stop having multiple
++    // presentations per document
++    nsCOMPtr<nsISupports> supps(do_QueryInterface(aPO->mDocShell));
++    aPO->mPresContext->SetContainer(supps);
++
++    aPO->mPresShell->BeginObservingDocument();
++
++
++    printf("Update mZoomRation\n");
++
++    if (mIsCreatingPrintPreview && documentIsTopLevel) {
++      mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
++                                                   aPO->mPresContext,
++                                                   aPO->mPresShell);
++    }
+   }
+ 
+-  styleSet->EndUpdate();
+-  
+-  // The pres shell now owns the style set object.
+-
+-  PR_PL(("In DV::ReflowPrintObject PO: %p (%9s) Setting w,h to %d,%d\n", aPO,
+-         gFrameTypesStr[aPO->mFrameType], adjSize.width, adjSize.height));
+-
+-  // Create a child window of the parent that is our "root view/window"
+-  nsRect tbounds = nsRect(nsPoint(0, 0), adjSize);
+-  nsIView* rootView = aPO->mViewManager->CreateView(tbounds, parentView);
+-  NS_ENSURE_TRUE(rootView, NS_ERROR_OUT_OF_MEMORY);
+-
+-  if (mIsCreatingPrintPreview && documentIsTopLevel) {
+-    aPO->mPresContext->SetPaginatedScrolling(canCreateScrollbars);
+-  }
+-
+-  // Setup hierarchical relationship in view manager
+-  aPO->mViewManager->SetRootView(rootView);
+-
+-  // This docshell stuff is weird; will go away when we stop having multiple
+-  // presentations per document
+-  nsCOMPtr<nsISupports> supps(do_QueryInterface(aPO->mDocShell));
+-  aPO->mPresContext->SetContainer(supps);
+-
+-  aPO->mPresShell->BeginObservingDocument();
+-
+   aPO->mPresContext->SetPageSize(adjSize);
+   aPO->mPresContext->SetIsRootPaginatedDocument(documentIsTopLevel);
++
+   aPO->mPresContext->SetPageScale(aPO->mZoomRatio);
+   // Calculate scale factor from printer to screen
+   float printDPI = float(mPrt->mPrintDC->AppUnitsPerCSSInch()) /
+                    float(mPrt->mPrintDC->AppUnitsPerDevPixel());
+   aPO->mPresContext->SetPrintPreviewScale(mScreenDPI / printDPI);
+ 
+-  if (mIsCreatingPrintPreview && documentIsTopLevel) {
+-    mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
+-                                                 aPO->mPresContext,
+-                                                 aPO->mPresShell);
+-  }
+-
+-  rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
++  // if (initPresContext) {
++    printf("initial reflow\n");
++    rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
++  // } else {
++  //  printf("update reflow\n");
++  //  rv = aPO->mPresShell->ReconstructFrames();
++  // }
+ 
+   NS_ENSURE_SUCCESS(rv, rv);
+   NS_ASSERTION(aPO->mPresShell, "Presshell should still be here");
+ 
+   // Process the reflow event InitialReflow posted
+   aPO->mPresShell->FlushPendingNotifications(Flush_Layout);
+ 
+   nsCOMPtr<nsIPresShell> displayShell;
+diff --git a/layout/printing/nsPrintObject.cpp b/layout/printing/nsPrintObject.cpp
+--- a/layout/printing/nsPrintObject.cpp
++++ b/layout/printing/nsPrintObject.cpp
+@@ -119,16 +119,17 @@ nsPrintObject::Init(nsIDocShell* aDocShe
+     return NS_OK;
+   }
+ 
+   mDocument = doc->CreateStaticClone(mDocShell);
+   nsCOMPtr<nsIDOMDocument> clonedDOMDoc = do_QueryInterface(mDocument);
+   NS_ENSURE_STATE(clonedDOMDoc);
+ 
+   viewer->SetDOMDocument(clonedDOMDoc);
++  printf("nsPrintObject::Init - done\n");
+   return NS_OK;
+ }
+ 
+ //------------------------------------------------------------------
+ // Resets PO by destroying the presentation
+ void 
+ nsPrintObject::DestroyPresentation()
+ {

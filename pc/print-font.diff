@@ -1,9 +1,69 @@
 Hacky workaround to get data:url fonts working for bug 468568.
 
+diff --git a/content/base/public/nsContentPolicyUtils.h b/content/base/public/nsContentPolicyUtils.h
+--- a/content/base/public/nsContentPolicyUtils.h
++++ b/content/base/public/nsContentPolicyUtils.h
+@@ -201,31 +201,34 @@ NS_CP_ContentTypeName(PRUint32 contentTy
+  * Alias for calling ShouldLoad on the content policy service.  Parameters are
+  * the same as nsIContentPolicy::shouldLoad, except for the originPrincipal
+  * parameter, which should be non-null if possible, and the last two
+  * parameters, which can be used to pass in pointer to some useful services if
+  * the caller already has them.  The origin URI to pass to shouldLoad will be
+  * the URI of originPrincipal, unless originPrincipal is null (in which case a
+  * null origin URI will be passed).
+  */
+-inline nsresult
++nsresult
+ NS_CheckContentLoadPolicy(PRUint32          contentType,
+                           nsIURI           *contentLocation,
+                           nsIPrincipal     *originPrincipal,
+                           nsISupports      *context,
+                           const nsACString &mimeType,
+                           nsISupports      *extra,
+                           PRInt16          *decision,
+                           nsIContentPolicy *policyService = nsnull,
+                           nsIScriptSecurityManager* aSecMan = nsnull)
+ {
++    printf("HelloWorldBack\n");
+     CHECK_PRINCIPAL;
+     if (policyService) {
++        printf("NS_CheckContentLoadPolicy:: policyService\n");
+         CHECK_CONTENT_POLICY_WITH_SERVICE(ShouldLoad, policyService);
+     }
++    printf("NS_CheckContentLoadPolicy:: decison %d\n", *decision);
+     CHECK_CONTENT_POLICY(ShouldLoad);
+ }
+ 
+ /**
+  * Alias for calling ShouldProcess on the content policy service.  Parameters
+  * are the same as nsIContentPolicy::shouldLoad, except for the originPrincipal
+  * parameter, which should be non-null if possible, and the last two
+  * parameters, which can be used to pass in pointer to some useful services if
+@@ -241,18 +244,20 @@ NS_CheckContentProcessPolicy(PRUint32   
+                              const nsACString &mimeType,
+                              nsISupports      *extra,
+                              PRInt16          *decision,
+                              nsIContentPolicy *policyService = nsnull,
+                              nsIScriptSecurityManager* aSecMan = nsnull)
+ {
+     CHECK_PRINCIPAL;
+     if (policyService) {
++        printf("NS_CheckContentProcessPolicy:: policyService2\n");
+         CHECK_CONTENT_POLICY_WITH_SERVICE(ShouldProcess, policyService);
+     }
++    printf("NS_CheckContentProcessPolicy:: decison %d\n", *decision);
+     CHECK_CONTENT_POLICY(ShouldProcess);
+ }
+ 
+ #undef CHECK_CONTENT_POLICY
+ #undef CHECK_CONTENT_POLICY_WITH_SERVICE
+ 
+ /**
+  * Helper function to get an nsIDocShell given a context.
 diff --git a/layout/style/nsFontFaceLoader.cpp b/layout/style/nsFontFaceLoader.cpp
 --- a/layout/style/nsFontFaceLoader.cpp
 +++ b/layout/style/nsFontFaceLoader.cpp
-@@ -285,31 +285,36 @@ nsFontFaceLoader::CheckLoadAllowed(nsIPr
+@@ -285,31 +285,35 @@ nsFontFaceLoader::CheckLoadAllowed(nsIPr
    nsIScriptSecurityManager *secMan = nsContentUtils::GetSecurityManager();
    rv = secMan->CheckLoadURIWithPrincipal(aSourcePrincipal, aTargetURI,
                                          nsIScriptSecurityManager::STANDARD);
@@ -12,37 +72,24 @@ diff --git a/layout/style/nsFontFaceLoader.cpp b/layout/style/nsFontFaceLoader.c
    }
  
    // check content policy
--  PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
--  rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_FONT,
--                                 aTargetURI,
--                                 aSourcePrincipal,
--                                 aContext,
--                                 EmptyCString(), // mime type
--                                 nsnull,
--                                 &shouldLoad,
--                                 nsContentUtils::GetContentPolicy(),
--                                 nsContentUtils::GetSecurityManager());
 +  nsCAutoString spec;
 +  aTargetURI->GetSpec(spec);
- 
--  if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
--    return NS_ERROR_CONTENT_BLOCKED;
-+  // XXX Workaround: Don't check policy for data:url-fonts.
-+  if (spec.Find("data:font") != 0) {
-+    PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
-+    rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_FONT,
-+                                   aTargetURI,
-+                                   aSourcePrincipal,
-+                                   aContext,
-+                                   EmptyCString(), // mime type
-+                                   nsnull,
-+                                   &shouldLoad,
-+                                   nsContentUtils::GetContentPolicy(),
-+                                   nsContentUtils::GetSecurityManager());
 +
-+    if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
-+      return NS_ERROR_CONTENT_BLOCKED;
-+    }
++  printf("HelloWorld\n");
++
+   PRInt16 shouldLoad = nsIContentPolicy::ACCEPT;
+   rv = NS_CheckContentLoadPolicy(nsIContentPolicy::TYPE_FONT,
+                                  aTargetURI,
+                                  aSourcePrincipal,
+                                  aContext,
+                                  EmptyCString(), // mime type
+                                  nsnull,
+                                  &shouldLoad,
+                                  nsContentUtils::GetContentPolicy(),
+                                  nsContentUtils::GetSecurityManager());
+ 
+   if (NS_FAILED(rv) || NS_CP_REJECTED(shouldLoad)) {
+     return NS_ERROR_CONTENT_BLOCKED;
    }
 -
    return NS_OK;

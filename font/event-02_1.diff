@@ -1,0 +1,51 @@
+# HG changeset patch
+# Parent cec2e22f8f9e670e867164c8debb12a665c0e241
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -262,5 +262,6 @@ nsPrintEngine::nsPrintEngine() :
+   mPrtPreview(nsnull),
+   mOldPrtPreview(nsnull),
+-  mDebugFile(nsnull)
++  mDebugFile(nsnull),
++  mLoadCounter(0)
+ {
+ }
+@@ -1882,10 +1883,21 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+                                nsresult aStatus)
+ {
+-  printf("onStateChange\n");
+-  if ((aStateFlags & STATE_START) != 0) {
++  // For some reasons, this never gets called???
++  if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
++    printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
++  }
++
++  if (aStateFlags & STATE_START) {
++    mLoadCounter++;
+     printf("nsPrintEngine - startRequest\n");
+-  }
+-  if ((aStateFlags & STATE_STOP) != 0) {
+-    printf("nsPrintEngine - stopRequest\n");
++  } else if (aStateFlags & STATE_STOP) {
++    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
++    mLoadCounter--;
++   
++    // If all resources are loaded, then do a small timeout and if there
++    // are still no new requests, then another reflow.
++    if (mLoadCounter == 0) {
++
++    }
+   }
+   return NS_OK;
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -309,4 +309,6 @@ protected:
+   FILE* mDebugFile;
+ 
++  PRInt32                 mLoadCounter;
++
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

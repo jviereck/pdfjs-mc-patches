@@ -1,10 +1,11 @@
-font/fix-network-01.diff
-font/load-event-font-01.diff
-font/load-event-font-02.diff
-#font/load-event-font-02-fix-try.diff
-font/load-event-font-03_1.diff
+ font/network-01.diff
+ font/event-01.diff
+ font/event-02_1.diff
+#font/event-02.diff
+#font/event-02-fix-try.diff
+ font/event-03_1.diff
 
-#font/load-event-font-03.diff
+#font/event-03.diff
 
 
 

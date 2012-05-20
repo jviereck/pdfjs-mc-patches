@@ -1,0 +1,359 @@
+# HG changeset patch
+# Parent 4da0307dd9d69e1c0d718da2b12b19744ce7f657
+diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
+--- a/layout/printing/nsPrintData.cpp
++++ b/layout/printing/nsPrintData.cpp
+@@ -67,17 +67,17 @@ static PRLogModuleInfo * kPrintingLogMod
+ nsPrintData::nsPrintData(ePrintDataType aType) :
+   mType(aType), mDebugFilePtr(nsnull), mPrintObject(nsnull), mSelectedPO(nsnull),
+   mPrintDocList(nsnull), mIsIFrameSelected(false),
+   mIsParentAFrameSet(false), mOnStartSent(false),
+   mIsAborted(false), mPreparingForPrint(false), mDocWasToBeDestroyed(false),
+   mShrinkToFit(false), mPrintFrameType(nsIPrintSettings::kFramesAsIs), 
+   mNumPrintablePages(0), mNumPagesPrinted(0),
+   mShrinkRatio(1.0), mOrigDCScale(1.0), mPPEventListeners(NULL), 
+-  mBrandName(nsnull), mLoadCounter(0)
++  mBrandName(nsnull), mLoadCounter(0), mLoadedContent(false)
+ {
+   MOZ_COUNT_CTOR(nsPrintData);
+   nsCOMPtr<nsIStringBundle> brandBundle;
+   nsCOMPtr<nsIStringBundleService> svc =
+     mozilla::services::GetStringBundleService();
+   if (svc) {
+     svc->CreateBundle( "chrome://branding/locale/brand.properties", getter_AddRefs( brandBundle ) );
+     if (brandBundle) {
+diff --git a/layout/printing/nsPrintData.h b/layout/printing/nsPrintData.h
+--- a/layout/printing/nsPrintData.h
++++ b/layout/printing/nsPrintData.h
+@@ -43,16 +43,17 @@
+ // Interfaces
+ #include "nsIDOMWindow.h"
+ #include "nsDeviceContext.h"
+ #include "nsIPrintProgressParams.h"
+ #include "nsIPrintOptions.h"
+ #include "nsTArray.h"
+ #include "nsCOMArray.h"
+ #include "nsAutoPtr.h"
++#include "nsITimer.h"
+ 
+ // Classes
+ class nsPrintObject;
+ class nsPrintPreviewListener;
+ class nsIWebProgressListener;
+ 
+ //------------------------------------------------------------------------
+ // nsPrintData Class
+@@ -121,16 +122,18 @@ public:
+   float                       mOrigDCScale;
+ 
+   nsCOMPtr<nsIPrintSettings>  mPrintSettings;
+   nsPrintPreviewListener*     mPPEventListeners;
+ 
+   PRUnichar*            mBrandName; //  needed as a substitute name for a document
+ 
+   PRInt32                     mLoadCounter;
++  bool                        mLoadedContent;
++  nsCOMPtr<nsITimer>          mLoadTimer;
+ private:
+   nsPrintData() MOZ_DELETE;
+   nsPrintData& operator=(const nsPrintData& aOther) MOZ_DELETE;
+ 
+ };
+ 
+ #endif /* nsPrintData_h___ */
+ 
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -240,17 +240,23 @@ public:
+ protected:
+   nsRefPtr<nsPrintEngine> mPrintEngine;
+   bool                    mSuppressed;
+ };
+ 
+ // Class IDs
+ static NS_DEFINE_CID(kViewManagerCID,       NS_VIEW_MANAGER_CID);
+ 
+-NS_IMPL_ISUPPORTS3(nsPrintEngine, nsIWebProgressListener, nsISupportsWeakReference, nsIObserver)
++NS_IMPL_ISUPPORTS4(
++    nsPrintEngine, 
++    nsITimerCallback,
++    nsIWebProgressListener, 
++    nsISupportsWeakReference, 
++    nsIObserver
++)
+ 
+ //---------------------------------------------------
+ //-- nsPrintEngine Class Impl
+ //---------------------------------------------------
+ nsPrintEngine::nsPrintEngine() :
+   mIsCreatingPrintPreview(false),
+   mIsDoingPrinting(false),
+   mIsDoingPrintPreview(false),
+@@ -1487,17 +1493,17 @@ nsresult nsPrintEngine::DocumentReadyFor
+ {
+   if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
+     CheckForChildFrameSets(mPrt->mPrintObject);
+   }
+ 
+   //
+   // Send the document to the printer...
+   //
+-  nsresult rv = SetupToPrintContent();
++  nsresult rv = SetupToPrintContent(true);
+   if (NS_FAILED(rv)) {
+     // The print job was canceled or there was a problem
+     // So remove all other documents from the print list
+     DonePrintingPages(nsnull, rv);
+   }
+   return rv;
+ }
+ 
+@@ -1631,18 +1637,25 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
+ }
+ 
+ //-----------------------------------------------------------------
+ //-- Section: Reflow Methods
+ //-----------------------------------------------------------------
+ 
+ //-------------------------------------------------------
+ nsresult
+-nsPrintEngine::SetupToPrintContent()
++nsPrintEngine::SetupToPrintContent(bool aInitialReflow)
+ {
++  /*
++  bool isCancelled;
++  mPrt->mPrintSettings->GetIsCancelled(&isCancelled);
++  if (isCancelled)
++    return NS_OK;
++  */
++
+   // In this step we figure out which documents should be printed
+   // i.e. if we are printing the selection then only enable that nsPrintObject
+   // for printing
+   if (NS_FAILED(EnablePOsForPrinting())) {
+     return NS_ERROR_FAILURE;
+   }
+   DUMP_DOC_LIST("\nAfter Enable------------------------------------------");
+ 
+@@ -1654,36 +1667,36 @@ nsPrintEngine::SetupToPrintContent()
+   // The first time we do not want to do this, the second time through we do
+   bool doSetPixelScale = false;
+   bool ppIsShrinkToFit = mPrtPreview && mPrtPreview->mShrinkToFit;
+   if (ppIsShrinkToFit) {
+     mPrt->mShrinkRatio = mPrtPreview->mShrinkRatio;
+     doSetPixelScale = true;
+   }
+ 
+-  printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+-
+-  // Here we reflow all the PrintObjects
+-  nsresult rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+-  if (NS_FAILED(rv)) {
+-    return NS_ERROR_FAILURE;
+-  }
+-
+-  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+-
+-  if (false) {
+-    printf("nsPrintEngine::SetupToPrintContent - BeginReflow 2\n");
++  nsresult rv;
++  // Reflow when calling this function the first time OR some content was
++  // loaded that require a reflow.
++  // if (aInitialReflow || mPrt->mLoadedContent) {
++    printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+ 
+     // Here we reflow all the PrintObjects
+     rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+     if (NS_FAILED(rv)) {
+       return NS_ERROR_FAILURE;
+     }
+-
+-    printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++  // }
++
++  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++
++  // If initial reflow, the function is called later, after all
++  // resources required to print the document are loaded.
++  if (aInitialReflow) {
++  //  StartLoadTimer();
++    // return NS_OK;
+   }
+ 
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview
+   if (mPrt->mShrinkToFit && !ppIsShrinkToFit) {
+     // Now look for the PO that has the smallest percent for shrink to fit
+     if (mPrt->mPrintDocList.Length() > 1 && mPrt->mPrintObject->mFrameType == eFrameSet) {
+       nsPrintObject* smallestPO = FindSmallestSTF();
+@@ -1871,37 +1884,70 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+   return NS_OK;
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
++void
++nsPrintEngine::StartLoadTimer()
++{
++   nsresult result;
++   mPrt->mLoadTimer = do_CreateInstance("@mozilla.org/timer;1", &result);
++   if (NS_FAILED(result)) {
++     NS_WARNING("unable to start the timer");
++   } else {
++     mPrt->mLoadTimer->InitWithCallback(this, 100, nsITimer::TYPE_ONE_SHOT);
++   }
++}
++
++NS_IMETHODIMP
++nsPrintEngine::Notify(nsITimer *timer)
++{
++  // If there are no outstanding loads, then start the print process again.
++  // If some content got loaded, there will be another reflow.
++  if (mPrt->mLoadCounter == 0) {
++    nsresult rv = SetupToPrintContent(false);
++    if (NS_FAILED(rv)) {
++      // The print job was canceled or there was a problem
++      // So remove all other documents from the print list
++      DonePrintingPages(nsnull, rv);
++    }
++  }
++  return NS_OK; 
++}
++
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+                                nsIRequest *aRequest, PRUint32 aStateFlags,
+                                nsresult aStatus)
+ {
++  if (mPrt->mLoadTimer) {
++    mPrt->mLoadTimer->Cancel();
++    mPrt->mLoadTimer = nsnull;
++  }
+   // For some reasons, this never gets called???
+   if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
+     printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
+   }
+ 
+   if (aStateFlags & STATE_START) {
+     this->mPrt->mLoadCounter++;
++    this->mPrt->mLoadedContent = true;
+     printf("nsPrintEngine - startRequest\n");
+   } else if (aStateFlags & STATE_STOP) {
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+-    this->mPtr->mLoadCounter--;
++    this->mPrt->mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+-    if (this->mPtr->mLoadCounter == 0) {
+-
++    if (this->mPrt->mLoadCounter == 0) {
++      StartLoadTimer(); 
+     }
+   }
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
+                                   nsIRequest *aRequest,
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -50,40 +50,47 @@
+ #include "nsIDOMWindow.h"
+ #include "nsIObserver.h"
+ 
+ #include "nsIWebProgress.h"
+ #include "nsIWebProgressListener.h"
+ 
+ #include "nsWeakReference.h"
+ 
++// Timer Includes
++#include "nsITimer.h"
++
+ // Classes
+ class nsPagePrintTimer;
+ class nsIDocShellTreeNode;
+ class nsDeviceContext;
+ class nsIDocumentViewerPrint;
+ class nsPrintObject;
+ class nsIDocShell;
+ class nsIPageSequenceFrame;
+ class nsIWeakReference;
+ class nsIWebProgressListener;
+ 
+ //------------------------------------------------------------------------
+ // nsPrintEngine Class
+ //
+ //------------------------------------------------------------------------
+ class nsPrintEngine : public nsIWebProgressListener,
++                      public nsITimerCallback,
+                       public nsSupportsWeakReference,
+                       public nsIObserver
+ {
+ public:
+   // nsISupports interface...
+   NS_DECL_ISUPPORTS
+   NS_DECL_NSIWEBPROGRESSLISTENER
+ 
++  // nsITimerCallback
++  NS_DECL_NSITIMERCALLBACK
++
+   // nsIObserver
+   NS_DECL_NSIOBSERVER
+ 
+   // Old nsIWebBrowserPrint methods; not cleaned up yet
+   NS_IMETHOD Print(nsIPrintSettings*       aPrintSettings,
+                    nsIWebProgressListener* aWebProgressListener);
+   NS_IMETHOD PrintPreview(nsIPrintSettings* aPrintSettings,
+                           nsIDOMWindow *aChildDOMWin,
+@@ -124,17 +131,17 @@ public:
+ 
+   //
+   // The following three methods are used for printing...
+   //
+   nsresult DocumentReadyForPrinting();
+   nsresult GetSelectionDocument(nsIDeviceContextSpec * aDevSpec,
+                                 nsIDocument ** aNewDoc);
+ 
+-  nsresult SetupToPrintContent();
++  nsresult SetupToPrintContent(bool aInitialReflow);
+   nsresult EnablePOsForPrinting();
+   nsPrintObject* FindSmallestSTF();
+ 
+   bool     PrintDocContent(nsPrintObject* aPO, nsresult& aStatus);
+   nsresult DoPrint(nsPrintObject * aPO);
+ 
+   void SetPrintPO(nsPrintObject* aPO, bool aPrint);
+ 
+@@ -295,23 +302,23 @@ protected:
+   nsCOMPtr<nsIDocumentViewerPrint> mDocViewerPrint;
+   nsWeakPtr               mContainer;
+   float                   mScreenDPI;
+   
+   nsPrintData*            mPrt;
+   nsPagePrintTimer*       mPagePrintTimer;
+   nsIPageSequenceFrame*   mPageSeqFrame;
+ 
+-  bool IncLoadCounter();
+-
+   // Print Preview
+   nsPrintData*            mPrtPreview;
+   nsPrintData*            mOldPrtPreview;
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
++  void                    StartLoadTimer();
++
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */

@@ -1,2 +1,493 @@
 # HG changeset patch
-# Parent 35a07c3f3ca1f76e8e5b8cb32a646e569beafa49
+# Parent 329a5901d1a695957a1e6edeca57ce6c4b1118ca
+
+diff --git a/content/base/src/nsDocument.cpp b/content/base/src/nsDocument.cpp
+--- a/content/base/src/nsDocument.cpp
++++ b/content/base/src/nsDocument.cpp
+@@ -205,16 +205,18 @@
+ #include "nsXULAppAPI.h"
+ #include "nsDOMTouchEvent.h"
+ 
+ #include "mozilla/Preferences.h"
+ 
+ #include "imgILoader.h"
+ #include "nsWrapperCacheInlines.h"
+ 
++#include "nsIDocumentLoader.h"
++
+ using namespace mozilla;
+ using namespace mozilla::dom;
+ 
+ typedef nsTArray<Link*> LinkArray;
+ 
+ // Reference to the document which requested DOM full-screen mode.
+ nsWeakPtr nsDocument::sFullScreenDoc = nsnull;
+ 
+@@ -3799,16 +3801,17 @@ NotifyActivityChanged(nsIContent *aConte
+     nsObjectLoadingContent* olc = static_cast<nsObjectLoadingContent*>(objectLoadingContent.get());
+     olc->NotifyOwnerDocumentActivityChanged();
+   }
+ }
+ 
+ void
+ nsIDocument::SetContainer(nsISupports* aContainer)
+ {
++  printf("nsIDocument::SetContainer\n");
+   mDocumentContainer = do_GetWeakReference(aContainer);
+   EnumerateFreezableElements(NotifyActivityChanged, nsnull);
+ }
+ 
+ void
+ nsDocument::SetScriptGlobalObject(nsIScriptGlobalObject *aScriptGlobalObject)
+ {
+ #ifdef DEBUG
+@@ -7589,26 +7592,39 @@ nsDocument::CloneDocHelper(nsDocument* c
+ 
+   // Set URI/principal
+   clone->nsDocument::SetDocumentURI(nsIDocument::GetDocumentURI());
+   // Must set the principal first, since SetBaseURI checks it.
+   clone->SetPrincipal(NodePrincipal());
+   clone->mDocumentBaseURI = mDocumentBaseURI;
+ 
+   if (mCreatingStaticClone) {
+-    nsCOMPtr<nsIChannel> channel = GetChannel();
+-    nsCOMPtr<nsILoadGroup> loadGroup = GetDocumentLoadGroup();
++    printf("nsDocument::CloneDocHelper clone:%p\n", clone);
++
++    nsCOMPtr<nsILoadGroup> loadGroup;
++    nsCOMPtr<nsIChannel> channel;
++    
++    nsCOMPtr<nsIDocShell> docShell = do_QueryReferent(mDocumentContainer);
++    NS_ASSERTION(docShell, "There should be a docShell");
++
++    nsCOMPtr<nsIDocumentLoader> docLoader = do_QueryReferent(mDocumentContainer);
++    NS_ASSERTION(docLoader, "There should be a docLoader");
++
++    docLoader->GetLoadGroup(getter_AddRefs(loadGroup));
++    docLoader->GetDocumentChannel(getter_AddRefs(channel));
++
+     if (channel && loadGroup) {
+       clone->Reset(channel, loadGroup);
+     } else {
+       nsIURI* uri = static_cast<const nsIDocument*>(this)->GetDocumentURI();
+       if (uri) {
+         clone->ResetToURI(uri, loadGroup, NodePrincipal());
+       }
+     }
++
+     nsCOMPtr<nsISupports> container = GetContainer();
+     clone->SetContainer(container);
+   }
+ 
+   // Set scripting object
+   bool hasHadScriptObject = true;
+   nsIScriptGlobalObject* scriptObject =
+     GetScriptHandlingObject(hasHadScriptObject);
+@@ -8079,32 +8095,36 @@ nsIDocument::FlushPendingLinkUpdates()
+   mLinksToUpdate.EnumerateEntries(EnumeratePendingLinkUpdates, nsnull);
+   mLinksToUpdate.Clear();
+   mHasLinksToUpdate = false;
+ }
+ 
+ already_AddRefed<nsIDocument>
+ nsIDocument::CreateStaticClone(nsISupports* aCloneContainer)
+ {
++  nsCOMPtr<nsIDocShell> cloneDocShell = do_QueryInterface(aCloneContainer);
++  printf("nsIDocument::CreateStaticClone - docShell %p\n", cloneDocShell.get());
++
+   nsCOMPtr<nsIDOMDocument> domDoc = do_QueryInterface(this);
+   NS_ENSURE_TRUE(domDoc, nsnull);
+   mCreatingStaticClone = true;
+ 
+   // Make document use different container during cloning.
+   nsCOMPtr<nsISupports> originalContainer = GetContainer();
+   SetContainer(aCloneContainer);
+   nsCOMPtr<nsIDOMNode> clonedNode;
+   nsresult rv = domDoc->CloneNode(true, 1, getter_AddRefs(clonedNode));
+   SetContainer(originalContainer);
+ 
+-  printf("nsIDocument::CreateStaticClone - begin\n");
++  printf("nsIDocument::CreateStaticClone - begin %p\n", aCloneContainer);
+ 
+   nsCOMPtr<nsIDocument> clonedDoc;
+   if (NS_SUCCEEDED(rv)) {
+     clonedDoc = do_QueryInterface(clonedNode);
++
+     if (clonedDoc) {
+       if (IsStaticDocument()) {
+         clonedDoc->mOriginalDocument = mOriginalDocument;
+       } else {
+         clonedDoc->mOriginalDocument = this;
+       }
+       PRInt32 sheetsCount = GetNumberOfStyleSheets();
+       for (PRInt32 i = 0; i < sheetsCount; ++i) {
+diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
+--- a/layout/base/nsDocumentViewer.cpp
++++ b/layout/base/nsDocumentViewer.cpp
+@@ -463,17 +463,17 @@ protected:
+   unsigned                         mPrintPreviewZoomed : 1;
+ 
+   // These data members support delayed printing when the document is loading
+   unsigned                         mPrintIsPending : 1;
+   unsigned                         mPrintDocIsFullyLoaded : 1;
+   nsCOMPtr<nsIPrintSettings>       mCachedPrintSettings;
+   nsCOMPtr<nsIWebProgressListener> mCachedPrintWebProgressListner;
+ 
+-  nsCOMPtr<nsPrintEngine>          mPrintEngine;
++  nsRefPtr<nsPrintEngine>          mPrintEngine;
+   float                            mOriginalPrintPreviewScale;
+   float                            mPrintPreviewZoom;
+ #endif // NS_PRINT_PREVIEW
+ 
+ #ifdef NS_DEBUG
+   FILE* mDebugFile;
+ #endif // NS_DEBUG
+ #endif // NS_PRINTING
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -240,17 +240,17 @@ public:
+ protected:
+   nsRefPtr<nsPrintEngine> mPrintEngine;
+   bool                    mSuppressed;
+ };
+ 
+ // Class IDs
+ static NS_DEFINE_CID(kViewManagerCID,       NS_VIEW_MANAGER_CID);
+ 
+-NS_IMPL_ISUPPORTS1(nsPrintEngine, nsIObserver)
++NS_IMPL_ISUPPORTS3(nsPrintEngine, nsIWebProgressListener, nsISupportsWeakReference, nsIObserver)
+ 
+ //---------------------------------------------------
+ //-- nsPrintEngine Class Impl
+ //---------------------------------------------------
+ nsPrintEngine::nsPrintEngine() :
+   mIsCreatingPrintPreview(false),
+   mIsDoingPrinting(false),
+   mIsDoingPrintPreview(false),
+@@ -1664,27 +1664,28 @@ nsPrintEngine::SetupToPrintContent()
+   // Here we reflow all the PrintObjects
+   nsresult rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+   if (NS_FAILED(rv)) {
+     return NS_ERROR_FAILURE;
+   }
+ 
+   printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+ 
+-
+-  printf("nsPrintEngine::SetupToPrintContent - BeginReflow 2\n");
+-
+-  // Here we reflow all the PrintObjects
+-  rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+-  if (NS_FAILED(rv)) {
+-    return NS_ERROR_FAILURE;
++  if (false) {
++    printf("nsPrintEngine::SetupToPrintContent - BeginReflow 2\n");
++
++    // Here we reflow all the PrintObjects
++    rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
++    if (NS_FAILED(rv)) {
++      return NS_ERROR_FAILURE;
++    }
++
++    printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+   }
+ 
+-  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+-
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview
+   if (mPrt->mShrinkToFit && !ppIsShrinkToFit) {
+     // Now look for the PO that has the smallest percent for shrink to fit
+     if (mPrt->mPrintDocList.Length() > 1 && mPrt->mPrintObject->mFrameType == eFrameSet) {
+       nsPrintObject* smallestPO = FindSmallestSTF();
+       NS_ASSERTION(smallestPO, "There must always be an XMost PO!");
+       if (smallestPO) {
+@@ -1867,16 +1868,73 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   PRInt32 cnt = aPO->mKids.Length();
+   for (PRInt32 i=0;i<cnt;i++) {
+     rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+   return NS_OK;
+ }
+ 
++////////////////////////////////////////////////////////////////////////////////
++// nsIWebProgressListener
++
++NS_IMETHODIMP
++nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
++                               nsIRequest *aRequest, PRUint32 aStateFlags,
++                               nsresult aStatus)
++{
++  printf("onStateChange\n");
++  if ((aStateFlags & STATE_START) != 0) {
++    printf("nsPrintEngine - startRequest\n");
++  }
++  if ((aStateFlags & STATE_STOP) != 0) {
++    printf("nsPrintEngine - stopRequest\n");
++  }
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest,
++                                  PRInt32 aCurSelfProgress,
++                                  PRInt32 aMaxSelfProgress,
++                                  PRInt32 aCurTotalProgress,
++                                  PRInt32 aMaxTotalProgress)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnLocationChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest, nsIURI *aLocation,
++                                  PRUint32 aFlags)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnStatusChange(nsIWebProgress *aWebProgress,
++                                nsIRequest *aRequest, nsresult aStatus,
++                                const PRUnichar *aMessage)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnSecurityChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest,
++                                  PRUint32 aState)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
+ //-------------------------------------------------------
+ // Reflow a nsPrintObject
+ nsresult
+ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
+ {
+   NS_ASSERTION(aPO, "Pointer is null!");
+   if (!aPO) return NS_ERROR_FAILURE;
+ 
+@@ -1990,20 +2048,26 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+ 
+     // This docshell stuff is weird; will go away when we stop having multiple
+     // presentations per document
+     nsCOMPtr<nsISupports> supps(do_QueryInterface(aPO->mDocShell));
+     aPO->mPresContext->SetContainer(supps);
+ 
+     aPO->mPresShell->BeginObservingDocument();
+ 
++    nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(aPO->mDocShell);
++
++    printf("<<>> SETUP WebProgress this:%p wp:%p ds:%p\n", this, &webProgress, &aPO->mDocShell);
++    webProgress->AddProgressListener(
++      static_cast<nsIWebProgressListener*>(this),
++      nsIWebProgress::NOTIFY_STATE_REQUEST);
+ 
+     printf("Update mZoomRation\n");
+ 
+-    if (mIsCreatingPrintPreview && documentIsTopLevel) {
++    if (false && mIsCreatingPrintPreview && documentIsTopLevel) {
+       mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
+                                                    aPO->mPresContext,
+                                                    aPO->mPresShell);
+     }
+   }
+ 
+   aPO->mPresContext->SetPageSize(adjSize);
+   aPO->mPresContext->SetIsRootPaginatedDocument(documentIsTopLevel);
+@@ -2012,16 +2076,20 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   // Calculate scale factor from printer to screen
+   float printDPI = float(mPrt->mPrintDC->AppUnitsPerCSSInch()) /
+                    float(mPrt->mPrintDC->AppUnitsPerDevPixel());
+   aPO->mPresContext->SetPrintPreviewScale(mScreenDPI / printDPI);
+ 
+   // if (initPresContext) {
+     printf("initial reflow\n");
+     rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
++
++    nsCOMPtr<nsISupports> container = aPO->mPresShell->GetPresContext()->GetContainer();     
++    nsCOMPtr<nsIDocShell> docShell(do_QueryInterface(container));
++      printf("After initial reflow, the docShell is %p\n", &docShell);
+   // } else {
+   //  printf("update reflow\n");
+   //  rv = aPO->mPresShell->ReconstructFrames();
+   // }
+ 
+   NS_ENSURE_SUCCESS(rv, rv);
+   NS_ASSERTION(aPO->mPresShell, "Presshell should still be here");
+ 
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -45,35 +45,44 @@
+ #include "nsPrintData.h"
+ #include "nsFrameList.h"
+ 
+ // Interfaces
+ #include "nsIDocument.h"
+ #include "nsIDOMWindow.h"
+ #include "nsIObserver.h"
+ 
++#include "nsIWebProgress.h"
++#include "nsIWebProgressListener.h"
++
++#include "nsWeakReference.h"
++
+ // Classes
+ class nsPagePrintTimer;
+ class nsIDocShellTreeNode;
+ class nsDeviceContext;
+ class nsIDocumentViewerPrint;
+ class nsPrintObject;
+ class nsIDocShell;
+ class nsIPageSequenceFrame;
+ class nsIWeakReference;
++class nsIWebProgressListener;
+ 
+ //------------------------------------------------------------------------
+ // nsPrintEngine Class
+ //
+ //------------------------------------------------------------------------
+-class nsPrintEngine : public nsIObserver
++class nsPrintEngine : public nsIWebProgressListener,
++                      public nsSupportsWeakReference,
++                      public nsIObserver
+ {
+ public:
+   // nsISupports interface...
+   NS_DECL_ISUPPORTS
++  NS_DECL_NSIWEBPROGRESSLISTENER
+ 
+   // nsIObserver
+   NS_DECL_NSIOBSERVER
+ 
+   // Old nsIWebBrowserPrint methods; not cleaned up yet
+   NS_IMETHOD Print(nsIPrintSettings*       aPrintSettings,
+                    nsIWebProgressListener* aWebProgressListener);
+   NS_IMETHOD PrintPreview(nsIPrintSettings* aPrintSettings,
+diff --git a/layout/printing/nsPrintObject.cpp b/layout/printing/nsPrintObject.cpp
+--- a/layout/printing/nsPrintObject.cpp
++++ b/layout/printing/nsPrintObject.cpp
+@@ -40,17 +40,19 @@
+ #include "nsIDOMDocument.h"
+ #include "nsContentUtils.h"
+ #include "nsIInterfaceRequestorUtils.h"
+ #include "nsPIDOMWindow.h"
+ #include "nsGkAtoms.h"
+ #include "nsComponentManagerUtils.h"
+ #include "nsIDocShellTreeItem.h"
+ #include "nsIBaseWindow.h"
+-                                                   
++
++#include "nsIDocumentLoader.h"
++
+ //---------------------------------------------------
+ //-- nsPrintObject Class Impl
+ //---------------------------------------------------
+ nsPrintObject::nsPrintObject() :
+   mContent(nsnull), mFrameType(eFrame), mParent(nsnull),
+   mHasBeenPrinted(false), mDontPrint(true), mPrintAsIs(false),
+   mSharedPresShell(false), mInvisible(false), mDidCreateDocShell(false),
+   mShrinkRatio(1.0), mZoomRatio(1.0)
+@@ -81,18 +83,20 @@ nsPrintObject::~nsPrintObject()
+ //------------------------------------------------------------------
+ nsresult 
+ nsPrintObject::Init(nsIDocShell* aDocShell, nsIDOMDocument* aDoc,
+                     bool aPrintPreview)
+ {
+   mPrintPreview = aPrintPreview;
+ 
+   if (mPrintPreview || mParent) {
++    printf("nsPrintObject::Init reuseDocShell\n");
+     mDocShell = aDocShell;
+   } else {
++    printf("nsPrintObject::Init createDocShell\n");
+     mTreeOwner = do_GetInterface(aDocShell);
+     nsCOMPtr<nsIDocShellTreeItem> item = do_QueryInterface(aDocShell);
+     PRInt32 itemType = 0;
+     item->GetItemType(&itemType);
+     // Create a container docshell for printing.
+     mDocShell = do_CreateInstance("@mozilla.org/docshell;1");
+     NS_ENSURE_TRUE(mDocShell, NS_ERROR_OUT_OF_MEMORY);
+     mDidCreateDocShell = true;
+@@ -114,16 +118,23 @@ nsPrintObject::Init(nsIDocShell* aDocShe
+     nsCOMPtr<nsPIDOMWindow> window = doc->GetWindow();
+     if (window) {
+       mContent = do_QueryInterface(window->GetFrameElementInternal());
+     }
+     mDocument = doc;
+     return NS_OK;
+   }
+ 
++  nsCOMPtr<nsILoadGroup> loadGroup;
++  nsCOMPtr<nsIChannel> channel;
++  nsCOMPtr<nsIDocumentLoader> docLoader = do_GetInterface(mDocShell);
++  docLoader->GetLoadGroup(getter_AddRefs(loadGroup));
++
++  printf("Cloning doc from mDocShell %p - loadGroup %p\n", mDocShell.get(), loadGroup.get());
++
+   mDocument = doc->CreateStaticClone(mDocShell);
+   nsCOMPtr<nsIDOMDocument> clonedDOMDoc = do_QueryInterface(mDocument);
+   NS_ENSURE_STATE(clonedDOMDoc);
+ 
+   viewer->SetDOMDocument(clonedDOMDoc);
+   printf("nsPrintObject::Init - done\n");
+   return NS_OK;
+ }
+diff --git a/uriloader/base/nsDocLoader.cpp b/uriloader/base/nsDocLoader.cpp
+--- a/uriloader/base/nsDocLoader.cpp
++++ b/uriloader/base/nsDocLoader.cpp
+@@ -221,16 +221,18 @@ nsDocLoader::SetDocLoaderParent(nsDocLoa
+ {
+   mParent = aParent;
+   return NS_OK; 
+ }
+ 
+ nsresult
+ nsDocLoader::Init()
+ {
++  printf("INIT nsDocLoader %p\n", this);
++
+   if (!mRequestInfoHash.ops) {
+     return NS_ERROR_OUT_OF_MEMORY;
+   }
+ 
+   nsresult rv = NS_NewLoadGroup(getter_AddRefs(mLoadGroup), this);
+   if (NS_FAILED(rv)) return rv;
+ 
+   PR_LOG(gDocLoaderLog, PR_LOG_DEBUG, 
+@@ -979,16 +981,24 @@ void nsDocLoader::doStopDocumentLoad(nsI
+ // The following section contains support for nsIWebProgress and related stuff
+ ////////////////////////////////////////////////////////////////////////////////////
+ 
+ NS_IMETHODIMP
+ nsDocLoader::AddProgressListener(nsIWebProgressListener *aListener,
+                                      PRUint32 aNotifyMask)
+ {
+   nsresult rv;
++  
++#if defined(DEBUG)
++  nsCAutoString buffer;
++
++  PR_LOG(gDocLoaderLog, PR_LOG_DEBUG, 
++         ("DocLoader:%p: AddProgressListener (%p %d)\n",
++         this, aListener, aNotifyMask));
++#endif /* DEBUG */
+ 
+   nsListenerInfo* info = GetListenerInfo(aListener);
+   if (info) {
+     // The listener is already registered!
+     return NS_ERROR_FAILURE;
+   }
+ 
+   nsWeakPtr listener = do_GetWeakReference(aListener);

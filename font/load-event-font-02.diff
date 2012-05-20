@@ -1,0 +1,219 @@
+# HG changeset patch
+# Parent 95a0a71ff38125d4ca4e4d09c87b8336a646dbb9
+
+diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
+--- a/layout/printing/nsPrintData.cpp
++++ b/layout/printing/nsPrintData.cpp
+@@ -67,17 +67,17 @@ static PRLogModuleInfo * kPrintingLogMod
+ nsPrintData::nsPrintData(ePrintDataType aType) :
+   mType(aType), mDebugFilePtr(nsnull), mPrintObject(nsnull), mSelectedPO(nsnull),
+   mPrintDocList(nsnull), mIsIFrameSelected(false),
+   mIsParentAFrameSet(false), mOnStartSent(false),
+   mIsAborted(false), mPreparingForPrint(false), mDocWasToBeDestroyed(false),
+   mShrinkToFit(false), mPrintFrameType(nsIPrintSettings::kFramesAsIs), 
+   mNumPrintablePages(0), mNumPagesPrinted(0),
+   mShrinkRatio(1.0), mOrigDCScale(1.0), mPPEventListeners(NULL), 
+-  mBrandName(nsnull)
++  mBrandName(nsnull), mLoadCounter(0)
+ {
+   MOZ_COUNT_CTOR(nsPrintData);
+   nsCOMPtr<nsIStringBundle> brandBundle;
+   nsCOMPtr<nsIStringBundleService> svc =
+     mozilla::services::GetStringBundleService();
+   if (svc) {
+     svc->CreateBundle( "chrome://branding/locale/brand.properties", getter_AddRefs( brandBundle ) );
+     if (brandBundle) {
+diff --git a/layout/printing/nsPrintData.h b/layout/printing/nsPrintData.h
+--- a/layout/printing/nsPrintData.h
++++ b/layout/printing/nsPrintData.h
+@@ -120,16 +120,17 @@ public:
+   float                       mShrinkRatio;
+   float                       mOrigDCScale;
+ 
+   nsCOMPtr<nsIPrintSettings>  mPrintSettings;
+   nsPrintPreviewListener*     mPPEventListeners;
+ 
+   PRUnichar*            mBrandName; //  needed as a substitute name for a document
+ 
++  PRInt32                     mLoadCounter;
+ private:
+   nsPrintData() MOZ_DELETE;
+   nsPrintData& operator=(const nsPrintData& aOther) MOZ_DELETE;
+ 
+ };
+ 
+ #endif /* nsPrintData_h___ */
+ 
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1876,22 +1876,33 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+                                nsIRequest *aRequest, PRUint32 aStateFlags,
+                                nsresult aStatus)
+ {
+-  printf("onStateChange\n");
+-  if ((aStateFlags & STATE_START) != 0) {
++  // For some reasons, this never gets called???
++  if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
++    printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
++  }
++
++  if (aStateFlags & STATE_START) {
++    this->mPrt->mLoadCounter++;
+     printf("nsPrintEngine - startRequest\n");
+-  }
+-  if ((aStateFlags & STATE_STOP) != 0) {
+-    printf("nsPrintEngine - stopRequest\n");
++  } else if (aStateFlags & STATE_STOP) {
++    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
++    this->mPtr->mLoadCounter--;
++   
++    // If all resources are loaded, then do a small timeout and if there
++    // are still no new requests, then another reflow.
++    if (this->mPtr->mLoadCounter == 0) {
++
++    }
+   }
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
+                                   nsIRequest *aRequest,
+                                   PRInt32 aCurSelfProgress,
+@@ -1912,17 +1923,18 @@ nsPrintEngine::OnLocationChange(nsIWebPr
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnStatusChange(nsIWebProgress *aWebProgress,
+                                 nsIRequest *aRequest, nsresult aStatus,
+                                 const PRUnichar *aMessage)
+ {
+-  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  //NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  printf("nsPrintEngine::OnStatus %d\n", aStatus);
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnSecurityChange(nsIWebProgress *aWebProgress,
+                                   nsIRequest *aRequest,
+                                   PRUint32 aState)
+ {
+@@ -2053,17 +2065,19 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+ 
+     aPO->mPresShell->BeginObservingDocument();
+ 
+     nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(aPO->mDocShell);
+ 
+     printf("<<>> SETUP WebProgress this:%p wp:%p ds:%p\n", this, &webProgress, &aPO->mDocShell);
+     webProgress->AddProgressListener(
+       static_cast<nsIWebProgressListener*>(this),
+-      nsIWebProgress::NOTIFY_STATE_REQUEST);
++      nsIWebProgress::NOTIFY_ALL
++    );
++    //  nsIWebProgress::NOTIFY_STATE_REQUEST | nsIWebProgress::NOTIFY_STATE_NETWORK);
+ 
+     printf("Update mZoomRation\n");
+ 
+     if (false && mIsCreatingPrintPreview && documentIsTopLevel) {
+       mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
+                                                    aPO->mPresContext,
+                                                    aPO->mPresShell);
+     }
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -295,16 +295,18 @@ protected:
+   nsCOMPtr<nsIDocumentViewerPrint> mDocViewerPrint;
+   nsWeakPtr               mContainer;
+   float                   mScreenDPI;
+   
+   nsPrintData*            mPrt;
+   nsPagePrintTimer*       mPagePrintTimer;
+   nsIPageSequenceFrame*   mPageSeqFrame;
+ 
++  bool IncLoadCounter();
++
+   // Print Preview
+   nsPrintData*            mPrtPreview;
+   nsPrintData*            mOldPrtPreview;
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
+diff --git a/layout/printing/nsPrintObject.cpp b/layout/printing/nsPrintObject.cpp
+--- a/layout/printing/nsPrintObject.cpp
++++ b/layout/printing/nsPrintObject.cpp
+@@ -118,22 +118,18 @@ nsPrintObject::Init(nsIDocShell* aDocShe
+     nsCOMPtr<nsPIDOMWindow> window = doc->GetWindow();
+     if (window) {
+       mContent = do_QueryInterface(window->GetFrameElementInternal());
+     }
+     mDocument = doc;
+     return NS_OK;
+   }
+ 
+-  nsCOMPtr<nsILoadGroup> loadGroup;
+-  nsCOMPtr<nsIChannel> channel;
+   nsCOMPtr<nsIDocumentLoader> docLoader = do_GetInterface(mDocShell);
+-  docLoader->GetLoadGroup(getter_AddRefs(loadGroup));
+-
+-  printf("Cloning doc from mDocShell %p - loadGroup %p\n", mDocShell.get(), loadGroup.get());
++  mDocLoader = docLoader;
+ 
+   mDocument = doc->CreateStaticClone(mDocShell);
+   nsCOMPtr<nsIDOMDocument> clonedDOMDoc = do_QueryInterface(mDocument);
+   NS_ENSURE_STATE(clonedDOMDoc);
+ 
+   viewer->SetDOMDocument(clonedDOMDoc);
+   printf("nsPrintObject::Init - done\n");
+   return NS_OK;
+diff --git a/layout/printing/nsPrintObject.h b/layout/printing/nsPrintObject.h
+--- a/layout/printing/nsPrintObject.h
++++ b/layout/printing/nsPrintObject.h
+@@ -43,16 +43,17 @@
+ #include "nsCOMPtr.h"
+ #include "nsIContent.h"
+ #include "nsIPresShell.h"
+ #include "nsStyleSet.h"
+ #include "nsIViewManager.h"
+ #include "nsIDocShell.h"
+ #include "nsIDocument.h"
+ #include "nsIDocShellTreeOwner.h"
++#include "nsIDocumentLoader.h"
+ 
+ class nsPresContext;
+ 
+ // nsPrintObject Document Type
+ enum PrintObjectType  {eDoc = 0, eFrame = 1, eIFrame = 2, eFrameSet = 3};
+ 
+ //---------------------------------------------------
+ //-- nsPrintObject Class
+@@ -70,16 +71,19 @@ public:
+ 
+   bool IsPrintable()  { return !mDontPrint; }
+   void   DestroyPresentation();
+ 
+   // Data Members
+   nsCOMPtr<nsIDocShell>    mDocShell;
+   nsCOMPtr<nsIDocShellTreeOwner> mTreeOwner;
+   nsCOMPtr<nsIDocument>    mDocument;
++  nsCOMPtr<nsIDocumentLoader> mDocLoader;
++
++  int             mLoadCount = 0;
+ 
+   nsRefPtr<nsPresContext>  mPresContext;
+   nsCOMPtr<nsIPresShell>   mPresShell;
+   nsCOMPtr<nsIViewManager> mViewManager;
+ 
+   nsCOMPtr<nsIContent>     mContent;
+   PrintObjectType  mFrameType;
+   

@@ -1,0 +1,83 @@
+# HG changeset patch
+# Parent 4da0307dd9d69e1c0d718da2b12b19744ce7f657
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1882,28 +1882,31 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+                                nsresult aStatus)
+ {
+   // For some reasons, this never gets called???
+   if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
+     printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
+   }
+ 
+   if (aStateFlags & STATE_START) {
+-    this->mPrt->mLoadCounter++;
+     printf("nsPrintEngine - startRequest\n");
++    mLoadCounter++;
++    // mPrt->mLoadCounter++;
+   } else if (aStateFlags & STATE_STOP) {
++    mLoadCounter--;
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+-    this->mPtr->mLoadCounter--;
++    // mPrt->mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+-    if (this->mPtr->mLoadCounter == 0) {
+-
+-    }
++    // if (mPrt->mLoadCounter == 0) {
++
++    // }
+   }
++  printf("end\n");
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
+                                   nsIRequest *aRequest,
+                                   PRInt32 aCurSelfProgress,
+                                   PRInt32 aMaxSelfProgress,
+@@ -2071,17 +2074,17 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+     webProgress->AddProgressListener(
+       static_cast<nsIWebProgressListener*>(this),
+       nsIWebProgress::NOTIFY_ALL
+     );
+     //  nsIWebProgress::NOTIFY_STATE_REQUEST | nsIWebProgress::NOTIFY_STATE_NETWORK);
+ 
+     printf("Update mZoomRation\n");
+ 
+-    if (false && mIsCreatingPrintPreview && documentIsTopLevel) {
++    if (mIsCreatingPrintPreview && documentIsTopLevel) {
+       mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
+                                                    aPO->mPresContext,
+                                                    aPO->mPresShell);
+     }
+   }
+ 
+   aPO->mPresContext->SetPageSize(adjSize);
+   aPO->mPresContext->SetIsRootPaginatedDocument(documentIsTopLevel);
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -295,17 +295,17 @@ protected:
+   nsCOMPtr<nsIDocumentViewerPrint> mDocViewerPrint;
+   nsWeakPtr               mContainer;
+   float                   mScreenDPI;
+   
+   nsPrintData*            mPrt;
+   nsPagePrintTimer*       mPagePrintTimer;
+   nsIPageSequenceFrame*   mPageSeqFrame;
+ 
+-  bool IncLoadCounter();
++  int                     mLoadCounter;
+ 
+   // Print Preview
+   nsPrintData*            mPrtPreview;
+   nsPrintData*            mOldPrtPreview;
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;

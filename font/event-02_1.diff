@@ -35,7 +35,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +    // If all resources are loaded, then do a small timeout and if there
 +    // are still no new requests, then another reflow.
 +    if (mLoadCounter == 0) {
-+
++      printf(">!>!>!> Finished loading all resources\n");
 +    }
    }
    return NS_OK;

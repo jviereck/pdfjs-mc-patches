@@ -1,0 +1,69 @@
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -262,5 +262,6 @@ nsPrintEngine::nsPrintEngine() :
+   mPrtPreview(nsnull),
+   mOldPrtPreview(nsnull),
+-  mDebugFile(nsnull)
++  mDebugFile(nsnull),
++  mLoadTimer(nsnull)
+ {
+ }
+@@ -1882,4 +1883,9 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+                                nsresult aStatus)
+ {
++  printf("nsPrintEngine::OnStateChange()\n");
++  if (mLoadTimer == nsnull) {
++    mLoadTimer->Cancel();
++    mLoadTimer = nsnull;
++  }  
+   // For some reasons, this never gets called???
+   if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
+@@ -1888,14 +1894,15 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+ 
+   if (aStateFlags & STATE_START) {
+-    this->mPrt->mLoadCounter++;
+     printf("nsPrintEngine - startRequest\n");
++    mLoadCounter++;
++    mLoadedContent = true;    
+   } else if (aStateFlags & STATE_STOP) {
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+-    this->mPtr->mLoadCounter--;
++    mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+-    if (this->mPtr->mLoadCounter == 0) {
+-
++    if (mLoadCounter == 0) {
++      // StartLoadTimer();
+     }
+   }
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -56,4 +56,7 @@
+ #include "nsWeakReference.h"
+ 
++// Timer Includes
++#include "nsITimer.h"
++
+ // Classes
+ class nsPagePrintTimer;
+@@ -301,6 +304,4 @@ protected:
+   nsIPageSequenceFrame*   mPageSeqFrame;
+ 
+-  bool IncLoadCounter();
+-
+   // Print Preview
+   nsPrintData*            mPrtPreview;
+@@ -311,4 +312,9 @@ protected:
+   FILE* mDebugFile;
+ 
++  void                    StartLoadTimer();
++  PRInt32                     mLoadCounter;
++  bool                        mLoadedContent;
++  nsCOMPtr<nsITimer>          mLoadTimer;
++  
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

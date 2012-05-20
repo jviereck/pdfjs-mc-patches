@@ -71,11 +71,11 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 -    printf("nsPrintEngine - stopRequest\n");
 +  } else if (aStateFlags & STATE_STOP) {
 +    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
-+    this->mPtr->mLoadCounter--;
++    this->mPrt->mLoadCounter--;
 +   
 +    // If all resources are loaded, then do a small timeout and if there
 +    // are still no new requests, then another reflow.
-+    if (this->mPtr->mLoadCounter == 0) {
++    if (this->mPrt->mLoadCounter == 0) {
 +
 +    }
    }
@@ -116,7 +116,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      webProgress->AddProgressListener(
        static_cast<nsIWebProgressListener*>(this),
 -      nsIWebProgress::NOTIFY_STATE_REQUEST);
-+      nsIWebProgress::NOTIFY_ALL
++      nsIWebProgress::NOTIFY_STATE_REQUEST
 +    );
 +    //  nsIWebProgress::NOTIFY_STATE_REQUEST | nsIWebProgress::NOTIFY_STATE_NETWORK);
  

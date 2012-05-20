@@ -1,5 +1,6 @@
 # HG changeset patch
 # Parent 4da0307dd9d69e1c0d718da2b12b19744ce7f657
+
 diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
 --- a/layout/printing/nsPrintData.cpp
 +++ b/layout/printing/nsPrintData.cpp
@@ -13,7 +14,7 @@ diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
    mNumPrintablePages(0), mNumPagesPrinted(0),
    mShrinkRatio(1.0), mOrigDCScale(1.0), mPPEventListeners(NULL), 
 -  mBrandName(nsnull), mLoadCounter(0)
-+  mBrandName(nsnull), mLoadCounter(0), mLoadedContent(false)
++  mBrandName(nsnull)
  {
    MOZ_COUNT_CTOR(nsPrintData);
    nsCOMPtr<nsIStringBundle> brandBundle;
@@ -43,17 +44,17 @@ diff --git a/layout/printing/nsPrintData.h b/layout/printing/nsPrintData.h
  
  //------------------------------------------------------------------------
  // nsPrintData Class
-@@ -121,16 +122,18 @@ public:
+@@ -119,18 +120,16 @@ public:
+   PRInt32                     mNumPagesPrinted;
+   float                       mShrinkRatio;
    float                       mOrigDCScale;
  
    nsCOMPtr<nsIPrintSettings>  mPrintSettings;
    nsPrintPreviewListener*     mPPEventListeners;
  
    PRUnichar*            mBrandName; //  needed as a substitute name for a document
- 
-   PRInt32                     mLoadCounter;
-+  bool                        mLoadedContent;
-+  nsCOMPtr<nsITimer>          mLoadTimer;
+-
+-  PRInt32                     mLoadCounter;
  private:
    nsPrintData() MOZ_DELETE;
    nsPrintData& operator=(const nsPrintData& aOther) MOZ_DELETE;
@@ -200,11 +201,11 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +nsPrintEngine::StartLoadTimer()
 +{
 +   nsresult result;
-+   mPrt->mLoadTimer = do_CreateInstance("@mozilla.org/timer;1", &result);
++   mLoadTimer = do_CreateInstance("@mozilla.org/timer;1", &result);
 +   if (NS_FAILED(result)) {
 +     NS_WARNING("unable to start the timer");
 +   } else {
-+     mPrt->mLoadTimer->InitWithCallback(this, 100, nsITimer::TYPE_ONE_SHOT);
++     mLoadTimer->InitWithCallback(this, 100, nsITimer::TYPE_ONE_SHOT);
 +   }
 +}
 +
@@ -213,7 +214,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +{
 +  // If there are no outstanding loads, then start the print process again.
 +  // If some content got loaded, there will be another reflow.
-+  if (mPrt->mLoadCounter == 0) {
++  if (mLoadCounter == 0) {
 +    nsresult rv = SetupToPrintContent(false);
 +    if (NS_FAILED(rv)) {
 +      // The print job was canceled or there was a problem
@@ -229,9 +230,9 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
                                 nsIRequest *aRequest, PRUint32 aStateFlags,
                                 nsresult aStatus)
  {
-+  if (mPrt->mLoadTimer) {
-+    mPrt->mLoadTimer->Cancel();
-+    mPrt->mLoadTimer = nsnull;
++  if (mLoadTimer) {
++    mLoadTimer->Cancel();
++    mLoadTimer = nsnull;
 +  }
    // For some reasons, this never gets called???
    if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
@@ -239,19 +240,20 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    }
  
    if (aStateFlags & STATE_START) {
-     this->mPrt->mLoadCounter++;
-+    this->mPrt->mLoadedContent = true;
+-    this->mPrt->mLoadCounter++;
++    mLoadCounter++;
++    mLoadedContent = true;
      printf("nsPrintEngine - startRequest\n");
    } else if (aStateFlags & STATE_STOP) {
      printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
 -    this->mPtr->mLoadCounter--;
-+    this->mPrt->mLoadCounter--;
++    mLoadCounter--;
     
      // If all resources are loaded, then do a small timeout and if there
      // are still no new requests, then another reflow.
 -    if (this->mPtr->mLoadCounter == 0) {
 -
-+    if (this->mPrt->mLoadCounter == 0) {
++    if (mLoadCounter == 0) {
 +      StartLoadTimer(); 
      }
    }
@@ -331,7 +333,7 @@ diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
  
    void SetPrintPO(nsPrintObject* aPO, bool aPrint);
  
-@@ -295,23 +302,23 @@ protected:
+@@ -295,23 +302,26 @@ protected:
    nsCOMPtr<nsIDocumentViewerPrint> mDocViewerPrint;
    nsWeakPtr               mContainer;
    float                   mScreenDPI;
@@ -351,6 +353,9 @@ diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
    FILE* mDebugFile;
  
 +  void                    StartLoadTimer();
++  PRInt32                     mLoadCounter;
++  bool                        mLoadedContent;
++  nsCOMPtr<nsITimer>          mLoadTimer;
 +
  private:
    nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

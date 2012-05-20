@@ -1,0 +1,121 @@
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -246,5 +246,11 @@ protected:
+ static NS_DEFINE_CID(kViewManagerCID,       NS_VIEW_MANAGER_CID);
+ 
+-NS_IMPL_ISUPPORTS3(nsPrintEngine, nsIWebProgressListener, nsISupportsWeakReference, nsIObserver)
++NS_IMPL_ISUPPORTS4(
++    nsPrintEngine, 
++    nsITimerCallback,
++    nsIWebProgressListener, 
++    nsISupportsWeakReference, 
++    nsIObserver
++)
+ 
+ //---------------------------------------------------
+@@ -1877,4 +1883,33 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+ // nsIWebProgressListener
+ 
++ 
++void
++nsPrintEngine::StartLoadTimer()
++{
++   nsresult result;
++   mLoadTimer = do_CreateInstance("@mozilla.org/timer;1", &result);
++   if (NS_FAILED(result)) {
++     NS_WARNING("unable to start the timer");
++   } else {
++     mLoadTimer->InitWithCallback(this, 100, nsITimer::TYPE_ONE_SHOT);
++   }
++}
++
++NS_IMETHODIMP
++nsPrintEngine::Notify(nsITimer *timer)
++{
++  // If there are no outstanding loads, then start the print process again.
++  // If some content got loaded, there will be another reflow.
++  if (mLoadCounter == 0) {
++    nsresult rv = SetupToPrintContent();
++    if (NS_FAILED(rv)) {
++      // The print job was canceled or there was a problem
++      // So remove all other documents from the print list
++      DonePrintingPages(nsnull, rv);
++    }
++  }
++  return NS_OK; 
++}
++
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+@@ -1882,4 +1917,8 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+                                nsresult aStatus)
+ {
++  if (mLoadTimer) {
++    mLoadTimer->Cancel();
++    mLoadTimer = nsnull;
++  }  
+   // For some reasons, this never gets called???
+   if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
+@@ -1888,14 +1927,15 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+ 
+   if (aStateFlags & STATE_START) {
+-    this->mPrt->mLoadCounter++;
+     printf("nsPrintEngine - startRequest\n");
++    mLoadCounter++;
++    mLoadedContent = true;    
+   } else if (aStateFlags & STATE_STOP) {
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+-    this->mPtr->mLoadCounter--;
++    mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+-    if (this->mPtr->mLoadCounter == 0) {
+-
++    if (mLoadCounter == 0) {
++      StartLoadTimer();
+     }
+   }
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -56,4 +56,7 @@
+ #include "nsWeakReference.h"
+ 
++// Timer Includes
++#include "nsITimer.h"
++
+ // Classes
+ class nsPagePrintTimer;
+@@ -72,4 +75,5 @@ class nsIWebProgressListener;
+ //------------------------------------------------------------------------
+ class nsPrintEngine : public nsIWebProgressListener,
++                      public nsITimerCallback,
+                       public nsSupportsWeakReference,
+                       public nsIObserver
+@@ -80,4 +84,7 @@ public:
+   NS_DECL_NSIWEBPROGRESSLISTENER
+ 
++  // nsITimerCallback
++  NS_DECL_NSITIMERCALLBACK
++
+   // nsIObserver
+   NS_DECL_NSIOBSERVER
+@@ -301,6 +308,4 @@ protected:
+   nsIPageSequenceFrame*   mPageSeqFrame;
+ 
+-  bool IncLoadCounter();
+-
+   // Print Preview
+   nsPrintData*            mPrtPreview;
+@@ -311,4 +316,9 @@ protected:
+   FILE* mDebugFile;
+ 
++  void                    StartLoadTimer();
++  PRInt32                     mLoadCounter;
++  bool                        mLoadedContent;
++  nsCOMPtr<nsITimer>          mLoadTimer;
++  
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

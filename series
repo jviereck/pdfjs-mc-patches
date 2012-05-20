@@ -1,8 +1,14 @@
 font/fix-network-01.diff
-font/load-event-font.diff
+font/load-event-font-01.diff
 font/load-event-font-02.diff
 #font/load-event-font-02-fix-try.diff
-font/load-event-font-03.diff
+font/load-event-font-03_1.diff
+
+#font/load-event-font-03.diff
+
+
+
+
 pc/print-font.diff
 pc/print-font-2.diff
 # ==============================================================================

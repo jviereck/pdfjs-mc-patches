@@ -1,0 +1,122 @@
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -263,5 +263,6 @@ nsPrintEngine::nsPrintEngine() :
+   mOldPrtPreview(nsnull),
+   mDebugFile(nsnull),
+-  mLoadCounter(0)
++  mLoadCounter(0),
++  mLoadedContent(false)
+ {
+ }
+@@ -1494,5 +1495,5 @@ nsresult nsPrintEngine::DocumentReadyFor
+   // Send the document to the printer...
+   //
+-  nsresult rv = SetupToPrintContent();
++  nsresult rv = SetupToPrintContent(true);
+   if (NS_FAILED(rv)) {
+     // The print job was canceled or there was a problem
+@@ -1638,10 +1639,18 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
+ //-------------------------------------------------------
+ nsresult
+-nsPrintEngine::SetupToPrintContent()
++nsPrintEngine::SetupToPrintContent(bool aInitialReflow)
+ {
++  printf("nsPrintEngine::SetupToPrintContent - ENTER\n");
++  /*
++  bool isCancelled;
++  mPrt->mPrintSettings->GetIsCancelled(&isCancelled);
++  if (isCancelled)
++    return NS_OK;
++  */
++
+   // In this step we figure out which documents should be printed
+   // i.e. if we are printing the selection then only enable that nsPrintObject
+   // for printing
+-  if (NS_FAILED(EnablePOsForPrinting())) {
++  if (aInitialReflow && NS_FAILED(EnablePOsForPrinting())) {
+     return NS_ERROR_FAILURE;
+   }
+@@ -1661,16 +1670,10 @@ nsPrintEngine::SetupToPrintContent()
+   }
+ 
+-  printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+-
+-  // Here we reflow all the PrintObjects
+-  nsresult rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+-  if (NS_FAILED(rv)) {
+-    return NS_ERROR_FAILURE;
+-  }
+-
+-  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+-
+-  if (false) {
+-    printf("nsPrintEngine::SetupToPrintContent - BeginReflow 2\n");
++  nsresult rv;
++  // Reflow when calling this function the first time OR some content was
++  // loaded that require a reflow.
++  if (aInitialReflow || mLoadedContent) {
++    mLoadedContent = false;
++    printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+ 
+     // Here we reflow all the PrintObjects
+@@ -1679,6 +1682,13 @@ nsPrintEngine::SetupToPrintContent()
+       return NS_ERROR_FAILURE;
+     }
+-
+-    printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++  }
++
++  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++
++  // If initial reflow, the function is called later, after all
++  // resources required to print the document are loaded.
++  if (aInitialReflow) {
++  //  StartLoadTimer();
++    return NS_OK;
+   }
+ 
+@@ -1889,6 +1899,7 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+ 
+   if (aStateFlags & STATE_START) {
++    printf("nsPrintEngine - startRequest\n");
+     mLoadCounter++;
+-    printf("nsPrintEngine - startRequest\n");
++    mLoadedContent = true;
+   } else if (aStateFlags & STATE_STOP) {
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+@@ -1899,4 +1910,10 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+     if (mLoadCounter == 0) {
+       printf(">!>!>!> Finished loading all resources\n");
++
++      nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
++
++      webProgress->RemoveProgressListener(
++        static_cast<nsIWebProgressListener*>(this));
++      SetupToPrintContent(false);
+     }
+   }
+@@ -3377,5 +3394,5 @@ nsPrintEngine::FinishPrintPreview()
+   // then we assign it over
+   mPrtPreview = mPrt;
+-  mPrt        = nsnull;
++  // mPrt        = nsnull;
+ 
+ #endif // NS_PRINT_PREVIEW
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -130,5 +130,5 @@ public:
+                                 nsIDocument ** aNewDoc);
+ 
+-  nsresult SetupToPrintContent();
++  nsresult SetupToPrintContent(bool aInitialReflow);
+   nsresult EnablePOsForPrinting();
+   nsPrintObject* FindSmallestSTF();
+@@ -310,5 +310,5 @@ protected:
+ 
+   PRInt32                 mLoadCounter;
+-
++  bool                    mLoadedContent;
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

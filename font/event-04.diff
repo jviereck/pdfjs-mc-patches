@@ -1,0 +1,190 @@
+# HG changeset patch
+# Parent 00e85bde9dd02677bc60caa73a47c034210d6989
+
+diff --git a/content/base/src/nsDocument.cpp b/content/base/src/nsDocument.cpp
+--- a/content/base/src/nsDocument.cpp
++++ b/content/base/src/nsDocument.cpp
+@@ -7601,5 +7601,4 @@ nsDocument::CloneDocHelper(nsDocument* c
+ 
+     nsCOMPtr<nsILoadGroup> loadGroup;
+-    nsCOMPtr<nsIChannel> channel;
+     
+     nsCOMPtr<nsIDocShell> docShell = do_QueryReferent(mDocumentContainer);
+@@ -7610,5 +7609,5 @@ nsDocument::CloneDocHelper(nsDocument* c
+ 
+     docLoader->GetLoadGroup(getter_AddRefs(loadGroup));
+-    docLoader->GetDocumentChannel(getter_AddRefs(channel));
++    nsCOMPtr<nsIChannel> channel = GetChannel();
+ 
+     if (channel && loadGroup) {
+diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
+--- a/layout/printing/nsPrintData.cpp
++++ b/layout/printing/nsPrintData.cpp
+@@ -97,6 +97,6 @@ nsPrintData::~nsPrintData()
+   // remove the event listeners
+   if (mPPEventListeners) {
+-    mPPEventListeners->RemoveListeners();
+-    NS_RELEASE(mPPEventListeners);
++    //mPPEventListeners->RemoveListeners();
++    //NS_RELEASE(mPPEventListeners);
+   }
+ 
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -711,4 +711,13 @@ nsPrintEngine::DoCommonPrint(bool       
+   }
+ 
++  if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
++    CheckForChildFrameSets(mPrt->mPrintObject);
++  }
++
++  if (NS_FAILED(EnablePOsForPrinting())) {
++    return NS_ERROR_FAILURE;
++  }
++
++  mIsPrintPreview = aIsPrintPreview;
+   if (aIsPrintPreview) {
+     bool notifyOnInit = false;
+@@ -719,5 +728,8 @@ nsPrintEngine::DoCommonPrint(bool       
+ 
+     if (!notifyOnInit) {
+-      rv = FinishPrintPreview();
++
++      rv = ReflowDocList(mPrt->mPrintObject, false);
++      InstallPrintPreviewListener();
++      // rv = FinishPrintPreview();
+     } else {
+       rv = NS_OK;
+@@ -730,5 +742,7 @@ nsPrintEngine::DoCommonPrint(bool       
+       // Print listener setup...
+       mPrt->OnStartPrinting();
+-      rv = DocumentReadyForPrinting();
++
++      rv = ReflowDocList(mPrt->mPrintObject, false);
++      // rv = DocumentReadyForPrinting();
+       NS_ENSURE_SUCCESS(rv, rv);
+     }
+@@ -1488,4 +1502,5 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
+ nsresult nsPrintEngine::DocumentReadyForPrinting()
+ {
++  printf(">>> nsPrintEngine::DocumentReadyForPrinting()\n");
+   if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
+     CheckForChildFrameSets(mPrt->mPrintObject);
+@@ -1642,11 +1657,6 @@ nsPrintEngine::SetupToPrintContent(bool 
+ {
+   printf("nsPrintEngine::SetupToPrintContent - ENTER\n");
++  
+   /*
+-  bool isCancelled;
+-  mPrt->mPrintSettings->GetIsCancelled(&isCancelled);
+-  if (isCancelled)
+-    return NS_OK;
+-  */
+-
+   // In this step we figure out which documents should be printed
+   // i.e. if we are printing the selection then only enable that nsPrintObject
+@@ -1655,4 +1665,5 @@ nsPrintEngine::SetupToPrintContent(bool 
+     return NS_ERROR_FAILURE;
+   }
++  */
+   DUMP_DOC_LIST("\nAfter Enable------------------------------------------");
+ 
+@@ -1670,27 +1681,17 @@ nsPrintEngine::SetupToPrintContent(bool 
+   }
+ 
++  doSetPixelScale = false;
+   nsresult rv;
+-  // Reflow when calling this function the first time OR some content was
+-  // loaded that require a reflow.
+-  if (aInitialReflow || mLoadedContent) {
+-    mLoadedContent = false;
+-    printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+-
+-    // Here we reflow all the PrintObjects
+-    rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+-    if (NS_FAILED(rv)) {
+-      return NS_ERROR_FAILURE;
+-    }
++
++  printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
++
++  // Here we reflow all the PrintObjects
++  rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
++  if (NS_FAILED(rv)) {
++    return NS_ERROR_FAILURE;
+   }
+ 
+   printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+ 
+-  // If initial reflow, the function is called later, after all
+-  // resources required to print the document are loaded.
+-  if (aInitialReflow) {
+-  //  StartLoadTimer();
+-    return NS_OK;
+-  }
+-
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview
+@@ -1915,5 +1916,10 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+       webProgress->RemoveProgressListener(
+         static_cast<nsIWebProgressListener*>(this));
+-      SetupToPrintContent(false);
++
++      if (mIsPrintPreview) {
++        FinishPrintPreview();
++      } else {
++        DocumentReadyForPrinting();
++      }
+     }
+   }
+@@ -1965,4 +1971,5 @@ nsresult
+ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
+ {
++  printf(">>>> nsPrintEngine::ReflowPrintObject - ENTER\n");
+   NS_ASSERTION(aPO, "Pointer is null!");
+   if (!aPO) return NS_ERROR_FAILURE;
+@@ -2019,4 +2026,5 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   // Only create the presContext ones.
+   if (initPresContext) {
++    printf(">>> Init presContext\n");
+     NS_ASSERTION(!aPO->mPresContext, "Recreating prescontext");
+ 
+@@ -2069,8 +2077,4 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+     NS_ENSURE_TRUE(rootView, NS_ERROR_OUT_OF_MEMORY);
+ 
+-    if (mIsCreatingPrintPreview && documentIsTopLevel) {
+-      aPO->mPresContext->SetPaginatedScrolling(canCreateScrollbars);
+-    }
+-
+     // Setup hierarchical relationship in view manager
+     aPO->mViewManager->SetRootView(rootView);
+@@ -2092,5 +2096,5 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+     printf("Update mZoomRation\n");
+ 
+-    if (false && mIsCreatingPrintPreview && documentIsTopLevel) {
++    if (mIsCreatingPrintPreview && documentIsTopLevel) {
+       mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
+                                                    aPO->mPresContext,
+@@ -3354,4 +3358,5 @@ nsresult
+ nsPrintEngine::FinishPrintPreview()
+ {
++  printf(">>> nsPrintEngine::FinishPrintPreview()\n");
+   nsresult rv = NS_OK;
+ 
+@@ -3387,5 +3392,5 @@ nsPrintEngine::FinishPrintPreview()
+   }
+ 
+-  InstallPrintPreviewListener();
++  // InstallPrintPreviewListener();
+ 
+   mPrt->OnEndPrinting();
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -311,4 +311,5 @@ protected:
+   PRInt32                 mLoadCounter;
+   bool                    mLoadedContent;
++  bool                    mIsPrintPreview; 
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

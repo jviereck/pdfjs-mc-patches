@@ -1,0 +1,303 @@
+diff --git a/content/base/src/nsDataDocumentContentPolicy.cpp b/content/base/src/nsDataDocumentContentPolicy.cpp
+--- a/content/base/src/nsDataDocumentContentPolicy.cpp
++++ b/content/base/src/nsDataDocumentContentPolicy.cpp
+@@ -92,6 +92,7 @@ nsDataDocumentContentPolicy::ShouldLoad(
+   }
+ 
+-  // Nothing else is OK to load for data documents
+-  if (doc->IsLoadedAsData()) {
++  // If this is not a static document, 
++  // nothing else is OK to load for data documents
++  if (!doc->IsStaticDocument() && doc->IsLoadedAsData())  {
+     *aDecision = nsIContentPolicy::REJECT_TYPE;
+     return NS_OK;
+diff --git a/content/base/src/nsDocument.cpp b/content/base/src/nsDocument.cpp
+--- a/content/base/src/nsDocument.cpp
++++ b/content/base/src/nsDocument.cpp
+@@ -211,4 +211,6 @@
+ #include "nsWrapperCacheInlines.h"
+ 
++#include "nsIDocumentLoader.h"
++
+ using namespace mozilla;
+ using namespace mozilla::dom;
+@@ -7595,6 +7597,17 @@ nsDocument::CloneDocHelper(nsDocument* c
+ 
+   if (mCreatingStaticClone) {
++    printf("nsDocument::CloneDocHelper clone:%p\n", clone);
++
++    nsCOMPtr<nsILoadGroup> loadGroup;
++    
++    nsCOMPtr<nsIDocShell> docShell = do_QueryReferent(mDocumentContainer);
++    NS_ASSERTION(docShell, "There should be a docShell");
++
++    nsCOMPtr<nsIDocumentLoader> docLoader = do_QueryReferent(mDocumentContainer);
++    NS_ASSERTION(docLoader, "There should be a docLoader");
++
++    docLoader->GetLoadGroup(getter_AddRefs(loadGroup));
+     nsCOMPtr<nsIChannel> channel = GetChannel();
+-    nsCOMPtr<nsILoadGroup> loadGroup = GetDocumentLoadGroup();
++
+     if (channel && loadGroup) {
+       clone->Reset(channel, loadGroup);
+diff --git a/gfx/thebes/gfxUserFontSet.cpp b/gfx/thebes/gfxUserFontSet.cpp
+--- a/gfx/thebes/gfxUserFontSet.cpp
++++ b/gfx/thebes/gfxUserFontSet.cpp
+@@ -123,4 +123,8 @@ gfxUserFontSet::AddFontFace(const nsAStr
+                             gfxSparseBitSet *aUnicodeRanges)
+ {
++    printf("gfxUserFontSet::AddFontFace %s %d\n", 
++      NS_LossyConvertUTF16toASCII(aFamilyName).get()
++      , this
++    );
+     gfxProxyFontEntry *proxyEntry = nsnull;
+ 
+diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
+--- a/layout/base/nsDocumentViewer.cpp
++++ b/layout/base/nsDocumentViewer.cpp
+@@ -469,5 +469,5 @@ protected:
+   nsCOMPtr<nsIWebProgressListener> mCachedPrintWebProgressListner;
+ 
+-  nsCOMPtr<nsPrintEngine>          mPrintEngine;
++  nsRefPtr<nsPrintEngine>          mPrintEngine;
+   float                            mOriginalPrintPreviewScale;
+   float                            mPrintPreviewZoom;
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -246,5 +246,5 @@ protected:
+ static NS_DEFINE_CID(kViewManagerCID,       NS_VIEW_MANAGER_CID);
+ 
+-NS_IMPL_ISUPPORTS1(nsPrintEngine, nsIObserver)
++NS_IMPL_ISUPPORTS3(nsPrintEngine, nsIWebProgressListener, nsISupportsWeakReference, nsIObserver)
+ 
+ //---------------------------------------------------
+@@ -262,5 +262,7 @@ nsPrintEngine::nsPrintEngine() :
+   mPrtPreview(nsnull),
+   mOldPrtPreview(nsnull),
+-  mDebugFile(nsnull)
++  mDebugFile(nsnull),
++  mLoadCounter(0),
++  mLoadedContent(false)
+ {
+ }
+@@ -709,4 +711,20 @@ nsPrintEngine::DoCommonPrint(bool       
+   }
+ 
++  if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
++    CheckForChildFrameSets(mPrt->mPrintObject);
++  }
++
++  if (NS_FAILED(EnablePOsForPrinting())) {
++    return NS_ERROR_FAILURE;
++  }
++
++  // Attach progressListener to catch network requests.
++  nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
++  printf("<<>> SETUP WebProgress this:%p wp:%p ds:%p\n", this, webProgress.get(), mPrt->mPrintObject->mDocShell.get());
++  webProgress->AddProgressListener(
++    static_cast<nsIWebProgressListener*>(this),
++    nsIWebProgress::NOTIFY_STATE_REQUEST);
++
++  mIsPrintPreview = aIsPrintPreview;
+   if (aIsPrintPreview) {
+     bool notifyOnInit = false;
+@@ -717,5 +735,8 @@ nsPrintEngine::DoCommonPrint(bool       
+ 
+     if (!notifyOnInit) {
+-      rv = FinishPrintPreview();
++
++      rv = ReflowDocList(mPrt->mPrintObject, false);
++      InstallPrintPreviewListener();
++      // rv = FinishPrintPreview();
+     } else {
+       rv = NS_OK;
+@@ -728,5 +749,7 @@ nsPrintEngine::DoCommonPrint(bool       
+       // Print listener setup...
+       mPrt->OnStartPrinting();
+-      rv = DocumentReadyForPrinting();
++
++      rv = ReflowDocList(mPrt->mPrintObject, false);
++      // rv = DocumentReadyForPrinting();
+       NS_ENSURE_SUCCESS(rv, rv);
+     }
+@@ -1486,4 +1509,5 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
+ nsresult nsPrintEngine::DocumentReadyForPrinting()
+ {
++  printf(">>> nsPrintEngine::DocumentReadyForPrinting()\n");
+   if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
+     CheckForChildFrameSets(mPrt->mPrintObject);
+@@ -1642,8 +1666,10 @@ nsPrintEngine::SetupToPrintContent()
+   // i.e. if we are printing the selection then only enable that nsPrintObject
+   // for printing
++  /*
+   if (NS_FAILED(EnablePOsForPrinting())) {
+     return NS_ERROR_FAILURE;
+   }
+   DUMP_DOC_LIST("\nAfter Enable------------------------------------------");
++  */
+ 
+   // This is an Optimization
+@@ -1660,10 +1686,16 @@ nsPrintEngine::SetupToPrintContent()
+   }
+ 
++  nsresult rv;
++
++  printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
++
+   // Here we reflow all the PrintObjects
+-  nsresult rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
++  rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+   if (NS_FAILED(rv)) {
+     return NS_ERROR_FAILURE;
+   }
+ 
++  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
++
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview
+@@ -1858,4 +1890,84 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+ }
+ 
++////////////////////////////////////////////////////////////////////////////////
++// nsIWebProgressListener
++
++NS_IMETHODIMP
++nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
++                               nsIRequest *aRequest, PRUint32 aStateFlags,
++                               nsresult aStatus)
++{
++  // For some reasons, this never gets called???
++  if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
++    printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
++  }
++
++  if (aStateFlags & STATE_START) {
++    printf("nsPrintEngine - startRequest\n");
++    mLoadCounter++;
++    mLoadedContent = true;
++  } else if (aStateFlags & STATE_STOP) {
++    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
++    mLoadCounter--;
++   
++    // If all resources are loaded, then do a small timeout and if there
++    // are still no new requests, then another reflow.
++    if (mLoadCounter == 0) {
++      printf(">!>!>!> Finished loading all resources\n");
++
++      nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
++
++      webProgress->RemoveProgressListener(
++        static_cast<nsIWebProgressListener*>(this));
++
++      if (mIsPrintPreview) {
++        FinishPrintPreview();
++      } else {
++        DocumentReadyForPrinting();
++      }
++    }
++  }
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest,
++                                  PRInt32 aCurSelfProgress,
++                                  PRInt32 aMaxSelfProgress,
++                                  PRInt32 aCurTotalProgress,
++                                  PRInt32 aMaxTotalProgress)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnLocationChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest, nsIURI *aLocation,
++                                  PRUint32 aFlags)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnStatusChange(nsIWebProgress *aWebProgress,
++                                nsIRequest *aRequest, nsresult aStatus,
++                                const PRUnichar *aMessage)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnSecurityChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest,
++                                  PRUint32 aState)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
+ //-------------------------------------------------------
+ // Reflow a nsPrintObject
+@@ -1863,4 +1975,5 @@ nsresult
+ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
+ {
++  printf(">>>> nsPrintEngine::ReflowPrintObject - ENTER\n");
+   NS_ASSERTION(aPO, "Pointer is null!");
+   if (!aPO) return NS_ERROR_FAILURE;
+@@ -3226,4 +3339,5 @@ nsresult
+ nsPrintEngine::FinishPrintPreview()
+ {
++  printf(">>> nsPrintEngine::FinishPrintPreview()\n");
+   nsresult rv = NS_OK;
+ 
+@@ -3259,5 +3373,5 @@ nsPrintEngine::FinishPrintPreview()
+   }
+ 
+-  InstallPrintPreviewListener();
++  // InstallPrintPreviewListener();
+ 
+   mPrt->OnEndPrinting();
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -51,4 +51,9 @@
+ #include "nsIObserver.h"
+ 
++#include "nsIWebProgress.h"
++#include "nsIWebProgressListener.h"
++
++#include "nsWeakReference.h"
++
+ // Classes
+ class nsPagePrintTimer;
+@@ -60,4 +65,5 @@ class nsIDocShell;
+ class nsIPageSequenceFrame;
+ class nsIWeakReference;
++class nsIWebProgressListener;
+ 
+ //------------------------------------------------------------------------
+@@ -65,9 +71,12 @@ class nsIWeakReference;
+ //
+ //------------------------------------------------------------------------
+-class nsPrintEngine : public nsIObserver
++class nsPrintEngine : public nsIWebProgressListener,
++                      public nsSupportsWeakReference,
++                      public nsIObserver
+ {
+ public:
+   // nsISupports interface...
+   NS_DECL_ISUPPORTS
++  NS_DECL_NSIWEBPROGRESSLISTENER
+ 
+   // nsIObserver
+@@ -300,4 +309,7 @@ protected:
+   FILE* mDebugFile;
+ 
++  PRInt32                 mLoadCounter;
++  bool                    mLoadedContent;
++  bool                    mIsPrintPreview; 
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

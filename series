@@ -1,4 +1,6 @@
 pc/base.diff
+pc/error-propagation.diff
+pc/fixes.diff
  
 #pc/fix-preview-rerender.diff
 #pc/fix-pdf-raster.diff

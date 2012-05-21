@@ -47,7 +47,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
 +  
 +  bool IsPrintCallbackDone();
 +
-+  bool HandlePrintCallback(nsIntSize &size);
++  bool HandlePrintCallback();
 +
 +  void CallPrintCallback();
  };
@@ -157,7 +157,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
    NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mCurrentContext)
  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
  
-@@ -147,28 +208,93 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
+@@ -147,28 +208,81 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
    {
      rv = UpdateContext();
      NS_ENSURE_SUCCESS(rv, rv);
@@ -167,32 +167,20 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  }
  
 +bool
-+nsHTMLCanvasElement::HandlePrintCallback(nsIntSize &size)
++nsHTMLCanvasElement::HandlePrintCallback()
 +{
 +  printf("=== HandlePrintCallback\n");
 +  // If the canvas is a printCanvas and the printing target is real paper,
 +  // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
-+  if (!mIsPrintCanvas || !mIsPrintPreview) {
++  if (mIsReadyToPrint || !mIsPrintCanvas || !mIsPrintPreview) {
 +    printf("=== handleprintcallback:early quit\n");
 +    return true;
 +  }
 +
 +  printf("=== HandlePrintCallback:continue\n");
-+  nsresult rv;
 +
-+  // For print preview, resize the canvas context, such that
-+  GetClientWidth(&size.width);
-+  GetClientHeight(&size.height);
-+
-+  if (!mIsReadyToPrint) {
-+    rv = mCurrentContext->AdjustToSize(size.width, size.height);
-+
-+    if (!NS_SUCCEEDED(rv))
-+      return false;
-+
-+    mIsReadyToPrint = true;
-+    CallPrintCallback();
-+  }
++  mIsReadyToPrint = true;
++  CallPrintCallback();
 +  return true;
 +}
 +
@@ -252,7 +240,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  
  nsChangeHint
  nsHTMLCanvasElement::GetAttributeChangeHint(const nsIAtom* aAttribute,
-@@ -242,16 +368,40 @@ nsHTMLCanvasElement::MozFetchAsStream(ns
+@@ -242,16 +356,40 @@ nsHTMLCanvasElement::MozFetchAsStream(ns
  
    nsCOMPtr<nsIInputStreamCallback> asyncCallback;
    rv = NS_NewInputStreamReadyEvent(getter_AddRefs(asyncCallback), aCallback, mainThread);
@@ -293,7 +281,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  {
    // note that if we don't have a current context, the spec says we're
    // supposed to just return transparent black pixels of the canvas
-@@ -498,17 +648,20 @@ nsHTMLCanvasElement::GetContextHelper(co
+@@ -498,17 +636,20 @@ nsHTMLCanvasElement::GetContextHelper(co
  
  NS_IMETHODIMP
  nsHTMLCanvasElement::GetContext(const nsAString& aContextId,
@@ -515,7 +503,7 @@ diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasF
    nsHTMLCanvasElement* element = static_cast<nsHTMLCanvasElement*>(GetContent());
    nsIntSize canvasSize = GetCanvasSize();
  
-+  if (!element->HandlePrintCallback(canvasSize))
++  if (!element->HandlePrintCallback())
 +    return nsnull;
 +
    if (canvasSize.width <= 0 || canvasSize.height <= 0 || area.IsEmpty())

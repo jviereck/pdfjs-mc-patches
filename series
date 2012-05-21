@@ -20,8 +20,10 @@ pc/01-print-state.diff
 # pc/old/backup.diff
 # pc/old/param-try-to-fix_failed.diff
 
-pc/prePagePrint.diff
-pc/prePagePrint-HandlePrintCallback.diff
-pc/fix-layout-print.diff
+pc/old/prePagePrint.diff
+pc/old/prePagePrint-HandlePrintCallback.diff
+pc/old/fix-layout-print.diff
+
+
 pc/fix-preview-rerender.diff
 pc/fix-scale.diff

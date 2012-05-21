@@ -1,10 +1,15 @@
 # HG changeset patch
-# Parent f09de9cae7f007f16f8689e861432c4b38d596db
+# Parent de0fa2da8559a5f50513a2f040950dc414b23296
 
 diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
 --- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
 +++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
-@@ -625,7 +625,7 @@
+@@ -615,17 +615,17 @@ protected:
+      * any shadow drawing and will use intermediate surfaces as needed.
+      *
+      * If dirtyRect is given, it will contain the user-space dirty
+      * rectangle of the draw operation.
+      */
      nsresult DrawPath(Style style, gfxRect *dirtyRect = nsnull);
  
      /**
@@ -13,7 +18,17 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
       */
      nsresult DrawRect(const gfxRect& rect, Style style);
  
-@@ -1042,6 +1042,7 @@
+     /**
+      * Gets the pres shell from either the canvas element or the doc shell
+      */
+     nsIPresShell *GetPresShell() {
+       nsCOMPtr<nsIContent> content = do_QueryObject(mCanvasElement);
+@@ -1030,35 +1030,38 @@ nsCanvasRenderingContext2D::ApplyStyle(S
+         color.a *= CurrentState().globalAlpha;
+ 
+     mThebes->SetColor(color);
+ }
+ 
  nsresult
  nsCanvasRenderingContext2D::Redraw()
  {
@@ -21,7 +36,11 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      if (mIsEntireFrameInvalid)
          return NS_OK;
      mIsEntireFrameInvalid = true;
-@@ -1053,6 +1054,7 @@
+ 
+     if (!mCanvasElement) {
+         NS_ASSERTION(mDocShell, "Redraw with no canvas element or docshell!");
+         return NS_OK;
+     }
  
      nsSVGEffects::InvalidateDirectRenderingObservers(HTMLCanvasElement());
  
@@ -29,7 +48,8 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      HTMLCanvasElement()->InvalidateCanvasContent(nsnull);
  
      return NS_OK;
-@@ -1061,6 +1063,7 @@
+ }
+ 
  NS_IMETHODIMP
  nsCanvasRenderingContext2D::Redraw(const gfxRect& r)
  {
@@ -37,7 +57,17 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      ++mInvalidateCount;
  
      if (mIsEntireFrameInvalid)
-@@ -1078,6 +1081,7 @@
+         return NS_OK;
+ 
+     if (mPredictManyRedrawCalls ||
+         mInvalidateCount > kCanvasMaxInvalidateCount) {
+         return Redraw();
+@@ -1066,29 +1069,34 @@ nsCanvasRenderingContext2D::Redraw(const
+ 
+     if (!mCanvasElement) {
+         NS_ASSERTION(mDocShell, "Redraw with no canvas element or docshell!");
+         return NS_OK;
+     }
  
      nsSVGEffects::InvalidateDirectRenderingObservers(HTMLCanvasElement());
  
@@ -45,7 +75,8 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      HTMLCanvasElement()->InvalidateCanvasContent(&r);
  
      return NS_OK;
-@@ -1086,11 +1090,15 @@
+ }
+ 
  NS_IMETHODIMP
  nsCanvasRenderingContext2D::RedrawUser(const gfxRect& r)
  {
@@ -62,7 +93,17 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      return Redraw(mThebes->UserToDevice(r));
  }
  
-@@ -2226,6 +2234,7 @@
+ NS_IMETHODIMP
+ nsCanvasRenderingContext2D::SetDimensions(PRInt32 width, PRInt32 height)
+ {
+     Initialize(NULL, width, height);
+     return NS_OK;
+@@ -2160,16 +2168,17 @@ nsCanvasRenderingContext2D::ClearRect(fl
+     mThebes->Fill();
+ 
+     return RedrawUser(mThebes->GetUserPathExtent());
+ }
+ 
  nsresult
  nsCanvasRenderingContext2D::DrawRect(const gfxRect& rect, Style style)
  {
@@ -70,7 +111,17 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      if (!EnsureSurface())
          return NS_ERROR_FAILURE;
  
-@@ -2248,6 +2257,7 @@
+     if (!FloatValidate(rect.X(), rect.Y(), rect.Width(), rect.Height()))
+         return NS_OK;
+ 
+     PathAutoSaveRestore pathSR(this);
+ 
+@@ -2182,16 +2191,17 @@ nsCanvasRenderingContext2D::DrawRect(con
+         return rv;
+ 
+     return RedrawUser(dirty);
+ }
+ 
  NS_IMETHODIMP
  nsCanvasRenderingContext2D::FillRect(float x, float y, float w, float h)
  {
@@ -78,29 +129,20 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      return DrawRect(gfxRect(x, y, w, h), STYLE_FILL);
  }
  
+ NS_IMETHODIMP
+ nsCanvasRenderingContext2D::StrokeRect(float x, float y, float w, float h)
+ {
+     if (w == 0.f && h == 0.f) {
+         return NS_OK;
 diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
 --- a/content/html/content/src/nsHTMLCanvasElement.cpp
 +++ b/content/html/content/src/nsHTMLCanvasElement.cpp
-@@ -216,15 +216,15 @@
- bool
- nsHTMLCanvasElement::HandlePrintCallback(nsIntSize &size)
+@@ -798,18 +798,21 @@ nsHTMLCanvasElement::SetWriteOnly()
+ }
+ 
+ void
+ nsHTMLCanvasElement::InvalidateCanvasContent(const gfxRect* damageRect)
  {
--  printf("=== HandlePrintCallback\n");
-+  // printf("=== HandlePrintCallback\n");
-   // If the canvas is a printCanvas and the printing target is real paper,
-   // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
-   if (!mIsPrintCanvas || !mIsPrintPreview) {
--    printf("=== handleprintcallback:early quit\n");
-+    // printf("=== handleprintcallback:early quit\n");
-     return true;
-   }
- 
--  printf("=== HandlePrintCallback:continue\n");
-+  // printf("=== HandlePrintCallback:continue\n");
-   nsresult rv;
- 
-   // For print preview, resize the canvas context, such that
-@@ -836,8 +836,11 @@
    // We don't need to flush anything here; if there's no frame or if
    // we plan to reframe we don't need to invalidate it anyway.
    nsIFrame *frame = GetPrimaryFrame();
@@ -113,3 +155,8 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  
    frame->MarkLayersActive(nsChangeHint(0));
  
+   nsRect invalRect;
+   nsRect contentArea = frame->GetContentRect();
+   if (damageRect) {
+     nsIntSize size = GetWidthHeight();
+     if (size.width != 0 && size.height != 0) {

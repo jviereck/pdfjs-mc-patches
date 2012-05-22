@@ -1,0 +1,33 @@
+# HG changeset patch
+# Parent 9f5a7fc822a824dbd0fcfed5c5fa41ab37900e6a
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -127,25 +127,25 @@ DOMCI_DATA(CanvasPrintState, nsCanvasPri
+ 
+ NS_INTERFACE_MAP_BEGIN(nsCanvasPrintState)
+   NS_INTERFACE_MAP_ENTRY(nsCanvasPrintState)
+   NS_INTERFACE_MAP_ENTRY(nsICanvasPrintState)
+   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(CanvasPrintState)
+   NS_INTERFACE_MAP_ENTRY(nsISupports)
+ NS_INTERFACE_MAP_END
+ 
+-/*
++
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsCanvasPrintState)
+   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mContext)
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+ 
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsCanvasPrintState)
+   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mContext);
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+-*/
++
+ 
+ // ---------------------------------------------------------------------------
+ 
+ nsGenericHTMLElement*
+ NS_NewHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo,
+                         FromParser aFromParser)
+ {
+   return new nsHTMLCanvasElement(aNodeInfo);

@@ -61,7 +61,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
 diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
 --- a/content/html/content/public/nsHTMLCanvasElement.h
 +++ b/content/html/content/public/nsHTMLCanvasElement.h
-@@ -204,16 +204,17 @@ protected:
+@@ -204,29 +204,33 @@ protected:
    nsresult GetContextHelper(const nsAString& aContextId,
                              bool aForceThebes,
                              nsICanvasRenderingContextInternal **aContext);
@@ -79,11 +79,13 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
    // We set this when script paints an image from a different origin.
    // We also transitively set it when script paints a canvas which
    // is itself write-only.
-@@ -222,11 +223,13 @@ public:
+   bool                     mWriteOnly;
+ 
    bool mIsPrintCanvas;
    bool mIsPrintPreview;
    
    bool IsPrintCallbackDone();
++  bool IsPrintCallbackAborted();
  
    bool HandlePrintCallback();
  
@@ -96,7 +98,52 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
 diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
 --- a/content/html/content/src/nsHTMLCanvasElement.cpp
 +++ b/content/html/content/src/nsHTMLCanvasElement.cpp
-@@ -119,46 +119,60 @@ DOMCI_DATA(CanvasPrintState, nsCanvasPri
+@@ -74,17 +74,17 @@ using namespace mozilla::layers;
+    {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
+ 
+ class nsCanvasPrintState : public nsICanvasPrintState
+ {
+ public:
+   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
+ 
+   nsCanvasPrintState(nsICanvasRenderingContextInternal *aContext)
+-      : mIsDone(false), mContext(aContext)
++      : mIsDone(false), mIsAborted(false), mContext(aContext)
+   {
+   }
+ 
+   NS_IMETHOD GetContext(nsISupports **context)
+   {
+     printf("=== GetContext2\n");
+     NS_ADDREF(*context = mContext);
+     return NS_OK;
+@@ -92,17 +92,25 @@ public:
+ 
+   NS_IMETHOD Done()
+   {
+     printf("CPS::Done\n");
+     mIsDone = true;
+     return NS_OK;
+   }
+ 
++  NS_IMETHOD Abort()
++  {
++    printf("CPS::Abort\n");
++    mIsAborted = true;
++    return NS_OK;
++  }
++
+   bool mIsDone;
++  bool mIsAborted;
+   
+   NS_DECL_ISUPPORTS
+ private:
+   ~nsCanvasPrintState() 
+   {
+   }
+ 
+   nsCOMPtr<nsICanvasRenderingContextInternal> mContext;
+@@ -119,46 +127,60 @@ DOMCI_DATA(CanvasPrintState, nsCanvasPri
  
  NS_INTERFACE_MAP_BEGIN(nsCanvasPrintState)
    NS_INTERFACE_MAP_ENTRY(nsCanvasPrintState)
@@ -158,7 +205,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  DOMCI_NODE_DATA(HTMLCanvasElement, nsHTMLCanvasElement)
  
  NS_INTERFACE_TABLE_HEAD_CYCLE_COLLECTION_INHERITED(nsHTMLCanvasElement)
-@@ -233,55 +247,64 @@ nsHTMLCanvasElement::HandlePrintCallback
+@@ -233,55 +255,75 @@ nsHTMLCanvasElement::HandlePrintCallback
  
  void
  nsHTMLCanvasElement::CallPrintCallback()
@@ -183,6 +230,17 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
    return mPrintState->mIsDone;
  }
  
++bool
++nsHTMLCanvasElement::IsPrintCallbackAborted()
++{
++  printf("=== CE:IsPrintCallbackAborted\n");
++  if (mPrintState == nsnull) {
++    return false;
++  }
++
++  return mPrintState->mIsAborted;
++}
++
 +nsIDOMHTMLCanvasElement*
 +nsHTMLCanvasElement::GetOriginalCanvas()
 +{
@@ -231,7 +289,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  }
  
  nsChangeHint
-@@ -366,29 +389,19 @@ nsHTMLCanvasElement::SetMozPrintCallback
+@@ -366,29 +408,19 @@ nsHTMLCanvasElement::SetMozPrintCallback
  {
    mPrintCallback = aCallback;
    return NS_OK;
@@ -262,6 +320,27 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
                                   bool& aFellBackToPNG)
  {
    // note that if we don't have a current context, the spec says we're
+diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+--- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
++++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
+@@ -56,16 +56,17 @@ interface nsIDOMFile;
+ interface nsIVariant;
+ interface nsIInputStreamCallback;
+ 
+ [scriptable, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a67)]
+ interface nsICanvasPrintState : nsISupports {
+   readonly attribute nsISupports context;
+ 
+   void done();
++  void abort();
+ };
+ 
+ [scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a66)]
+ interface nsIPrintCallback : nsISupports {
+   void render(in nsICanvasPrintState ctx);
+ };
+ 
+ [scriptable, uuid(5929542B-C68E-48AB-84F9-D9642DA39720)]
 diff --git a/layout/base/nsLayoutUtils.cpp b/layout/base/nsLayoutUtils.cpp
 --- a/layout/base/nsLayoutUtils.cpp
 +++ b/layout/base/nsLayoutUtils.cpp
@@ -301,6 +380,28 @@ diff --git a/layout/base/nsLayoutUtils.cpp b/layout/base/nsLayoutUtils.cpp
      result.mIsWriteOnly = canvas->IsWriteOnly();
  
      return result;
+diff --git a/layout/generic/nsIPageSequenceFrame.h b/layout/generic/nsIPageSequenceFrame.h
+--- a/layout/generic/nsIPageSequenceFrame.h
++++ b/layout/generic/nsIPageSequenceFrame.h
+@@ -66,17 +66,17 @@ public:
+    *            and the start page is greater than the total number of pages
+    *          NS_ERROR_FAILURE if there is an error
+    */
+   NS_IMETHOD StartPrint(nsPresContext*  aPresContext,
+                         nsIPrintSettings* aPrintOptions,
+                         PRUnichar* aDocTitle,
+                         PRUnichar* aDocURL) = 0;
+ 
+-  NS_IMETHOD PrePrintNextPage(bool *aDone) = 0;
++  NS_IMETHOD PrePrintNextPage(bool *aDone, bool *aAborted) = 0;
+   NS_IMETHOD PrintNextPage() = 0;
+   NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum) = 0;
+   NS_IMETHOD GetNumPages(PRInt32* aNumPages) = 0;
+   NS_IMETHOD IsDoingPrintRange(bool* aDoing) = 0;
+   NS_IMETHOD GetPrintRange(PRInt32* aFromPage, PRInt32* aToPage) = 0;
+ 
+   NS_IMETHOD DoPageEnd() = 0;
+   NS_IMETHOD SetSelectionHeight(nscoord aYOffset, nscoord aHeight) = 0;
 diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
 --- a/layout/generic/nsSimplePageSequence.cpp
 +++ b/layout/generic/nsSimplePageSequence.cpp
@@ -342,7 +443,28 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
  nsSimplePageSequenceFrame::ComputePrintThisPage()
  {
    // See whether we should print this page
-@@ -629,17 +629,17 @@ nsSimplePageSequenceFrame::PrePrintNextP
+@@ -605,18 +605,19 @@ nsSimplePageSequenceFrame::ComputePrintT
+   }
+   
+   if (nsIPrintSettings::kRangeSelection == mPrintRangeType) {
+     mPrintThisPage = true;
+   }
+ }
+ 
+ NS_IMETHODIMP
+-nsSimplePageSequenceFrame::PrePrintNextPage(bool* aDone)
++nsSimplePageSequenceFrame::PrePrintNextPage(bool* aDone, bool* aAborted)
+ {
++  *aAborted = false;
+   printf("--- SPSF::PrePrintNextPage : ENTER\n");
+   if (mCurrentPageFrame == nsnull) {
+     *aDone = true;
+     return NS_ERROR_FAILURE;
+   }
+   
+   ComputePrintThisPage();
+   // Nothing to do if the current page doesn't get printed OR rendering to
+@@ -629,17 +630,17 @@ nsSimplePageSequenceFrame::PrePrintNextP
  
    printf("--- SPSF::PrePrintNextPage : CheckIfSetupList\n");
  
@@ -361,3 +483,120 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
        nsresult rv = NS_OK;
  
        // Begin printing of the document
+@@ -687,17 +688,22 @@ nsSimplePageSequenceFrame::PrePrintNextP
+       printf(">>> Context: setup!\n");
+     }
+   }
+ 
+   PRInt32 doneCounter = 0;
+   for (PRInt32 i = mCurrentCanvasList.Length() - 1; i >= 0 ; i--) {
+     nsHTMLCanvasElement *canvas = mCurrentCanvasList[i];
+ 
+-    if (canvas->IsPrintCallbackDone()) {
++    if (canvas->IsPrintCallbackAborted()) {
++      *aDone = true;
++      *aAborted = true;
++      printf("!!! nsSimplePageSequenceFrame::PrePrintNextPage(...) - ABORTED!\n");
++      return NS_OK;
++    } else if (canvas->IsPrintCallbackDone()) {
+       doneCounter++;
+     }
+   }
+ 
+   // If all canvas have finished rendering, return true, otherwise false.
+   *aDone = doneCounter == mCurrentCanvasList.Length();
+   return NS_OK;
+ }
+diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
+--- a/layout/generic/nsSimplePageSequence.h
++++ b/layout/generic/nsSimplePageSequence.h
+@@ -105,17 +105,17 @@ public:
+   NS_IMETHOD GetSTFPercent(float& aSTFPercent);
+ 
+   // Async Printing
+   NS_IMETHOD StartPrint(nsPresContext*  aPresContext,
+                         nsIPrintSettings* aPrintSettings,
+                         PRUnichar*        aDocTitle,
+                         PRUnichar*        aDocURL);
+ 
+-  NS_IMETHOD PrePrintNextPage(bool *aDone);
++  NS_IMETHOD PrePrintNextPage(bool *aDone, bool *aAborted);
+   NS_IMETHOD PrintNextPage();
+   NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum);
+   NS_IMETHOD GetNumPages(PRInt32* aNumPages);
+   NS_IMETHOD IsDoingPrintRange(bool* aDoing);
+   NS_IMETHOD GetPrintRange(PRInt32* aFromPage, PRInt32* aToPage);
+   NS_IMETHOD DoPageEnd();
+ 
+   // We must allow Print Preview UI to have a background, no matter what the
+diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
+--- a/layout/printing/nsPrintData.cpp
++++ b/layout/printing/nsPrintData.cpp
+@@ -88,16 +88,18 @@ nsPrintData::nsPrintData(ePrintDataType 
+   if (!mBrandName) {
+     mBrandName = ToNewUnicode(NS_LITERAL_STRING("Mozilla Document"));
+   }
+ 
+ }
+ 
+ nsPrintData::~nsPrintData()
+ {
++  printf("=== nsPrintData::~nsPrintData()\n");
++
+   MOZ_COUNT_DTOR(nsPrintData);
+   // remove the event listeners
+   if (mPPEventListeners) {
+     mPPEventListeners->RemoveListeners();
+     NS_RELEASE(mPPEventListeners);
+   }
+ 
+   // Only Send an OnEndPrinting if we have started printing
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -2445,23 +2445,41 @@ nsPrintEngine::PrePrintPage()
+ 
+   // Check setting to see if someone request it be cancelled
+   bool isCancelled = false;
+   mPrt->mPrintSettings->GetIsCancelled(&isCancelled);
+   if (isCancelled)
+     return true;
+ 
+   // Ask mPageSeqFrame if the page is ready to be printed.
+-  // If the page doesn't get printed at all, the function will return true.
++  // If the page doesn't get printed at all, the |done| will be |true|.
++  // |aborted| is set to true iff |printState.aborted()| was called on one of
++  // the printCanvas.
+   bool done = false;
+-  nsresult rv = mPageSeqFrame->PrePrintNextPage(&done);
++  bool aborted = false;
++  nsresult rv = mPageSeqFrame->PrePrintNextPage(&done, &aborted);
+   if (NS_FAILED(rv)) {
+-    ShowPrintErrorDialog(rv);
++    printf("nsPrintEngine::PrePrintPage() - ERROR!\n");
++    // ??? ::PrintPage doesn't set |mPrt->mIsAborted = true| if rv != NS_ERROR_ABORT,
++    // but I don't really understand why this should be the right thing to do?
++    // Shouldn't |mPrt->mIsAborted| set to true all the time if something
++    // wents wrong?
++    if (rv != NS_ERROR_ABORT) {
++      ShowPrintErrorDialog(rv);
++      mPrt->mIsAborted = true;
++    }
++    done = true;
++  }
++  // If the printCallback was aborted, then set the isAborted flag, but don't
++  // show any error message. It's the developer's job to show/design the user
++  // some error message.
++  if (aborted) {
++    printf("nsPrintEngine::PrePrintPage() - ABORTED!\n");
+     mPrt->mIsAborted = true;
+-    return true;
++    done = true;
+   }
+   return done;
+ }
+ 
+ bool
+ nsPrintEngine::PrintPage(nsPrintObject*    aPO,
+                          bool&           aInRange)
+ {

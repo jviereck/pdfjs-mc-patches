@@ -1,0 +1,162 @@
+# HG changeset patch
+# Parent eab03c9472e6a8cf3925fe071037b952fd1b0032
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -696,34 +696,39 @@ nsPrintEngine::DoCommonPrint(bool       
+   if (aIsPrintPreview) {
+     bool notifyOnInit = false;
+     ShowPrintProgress(false, notifyOnInit);
+ 
+     // Very important! Turn Off scripting
+     TurnScriptingOn(false);
+ 
+     if (!notifyOnInit) {
+-
++      InstallPrintPreviewListener();
+       rv = ReflowDocList(mPrt->mPrintObject, false);
+-      InstallPrintPreviewListener();
+-      // rv = FinishPrintPreview();
++      NS_ENSURE_SUCCESS(rv, rv);
++
++      if (mLoadCounter == 0) {
++        AfterNetworkPrint();
++      }
+     } else {
+       rv = NS_OK;
+     }
+-    NS_ENSURE_SUCCESS(rv, rv);
+   } else {
+     bool doNotify;
+     ShowPrintProgress(true, doNotify);
+     if (!doNotify) {
+       // Print listener setup...
+       mPrt->OnStartPrinting();
+ 
+       rv = ReflowDocList(mPrt->mPrintObject, false);
+-      // rv = DocumentReadyForPrinting();
+       NS_ENSURE_SUCCESS(rv, rv);
++
++      if (mLoadCounter == 0) {
++        AfterNetworkPrint();
++      }
+     }
+   }
+ 
+   // We will enable scripting later after printing has finished.
+   scriptSuppressor.Disconnect();
+ 
+   return NS_OK;
+ }
+@@ -1651,16 +1656,24 @@ nsPrintEngine::SetupToPrintContent()
+     mPrt->mShrinkRatio = mPrtPreview->mShrinkRatio;
+     doSetPixelScale = true;
+   }
+ 
+   nsresult rv;
+ 
+   printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+ 
++  // Kill all presentations. ReflowDocList was called already once when we get here.
++  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
++    nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
++    NS_ASSERTION(po, "nsPrintObject can't be null!");
++    // Wipe out the presentation before we reflow
++    po->DestroyPresentation();
++  }
++
+   // Here we reflow all the PrintObjects
+   rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+   if (NS_FAILED(rv)) {
+     return NS_ERROR_FAILURE;
+   }
+ 
+   printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+ 
+@@ -1851,16 +1864,31 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   PRInt32 cnt = aPO->mKids.Length();
+   for (PRInt32 i=0;i<cnt;i++) {
+     rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+   return NS_OK;
+ }
+ 
++void
++nsPrintEngine::AfterNetworkPrint()
++{
++  nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
++
++  webProgress->RemoveProgressListener(
++    static_cast<nsIWebProgressListener*>(this));
++
++  if (mIsPrintPreview) {
++    FinishPrintPreview();
++  } else {
++    DocumentReadyForPrinting();
++  }
++}
++
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+                                nsIRequest *aRequest, PRUint32 aStateFlags,
+                                nsresult aStatus)
+ {
+@@ -1877,31 +1905,24 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+     mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+     if (mLoadCounter == 0) {
+       printf(">!>!>!> Finished loading all resources\n");
+ 
+-      nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+-
+-      webProgress->RemoveProgressListener(
+-        static_cast<nsIWebProgressListener*>(this));
+-
+-      if (mIsPrintPreview) {
+-        FinishPrintPreview();
+-      } else {
+-        DocumentReadyForPrinting();
+-      }
++      AfterNetworkPrint();
+     }
+   }
+   return NS_OK;
+ }
+ 
++
++
+ NS_IMETHODIMP
+ nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
+                                   nsIRequest *aRequest,
+                                   PRInt32 aCurSelfProgress,
+                                   PRInt32 aMaxSelfProgress,
+                                   PRInt32 aCurTotalProgress,
+                                   PRInt32 aMaxTotalProgress)
+ {
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -274,13 +274,15 @@ protected:
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
+   PRInt32                 mLoadCounter;
+   bool                    mLoadedContent;
+   bool                    mIsPrintPreview; 
++
++  void                    AfterNetworkPrint();
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */

@@ -1,5 +1,8 @@
- font/wip01_1.diff
+font/wip01_1.diff
 font/wip01_2.diff
+font/reconstruct-frames.diff
+font/class-runnable.diff
+font/runnable.diff
 
  font/network-01.diff
  font/event-01.diff
@@ -11,30 +14,3 @@ font/event-04.diff
 #font/event-03_1.diff
 #font/event-03.diff
 
-
-
-
-pc/print-font.diff
-pc/print-font-2.diff
-# ==============================================================================
-# Patches for pdf-rastering: https://bugzilla.mozilla.org/show_bug.cgi?id=691061
-# pc/pdf-raster-patch.diff
-# pc/try
-
-#----------------------
-
-pc/00r-base.diff
-pc/00-patch.diff
-pc/01-fix-01.diff
-pc/02-fix-02.diff
-pc/03-fix-03.diff
-pc/04-force-thebes.diff
-# ---------------------
-pc/param.diff
-pc/backup.diff
-#pc/param-try-to-fix_failed.diff
-pc/prePagePrint.diff
-pc/prePagePrint-HandlePrintCallback.diff
-pc/fix-layout-print.diff
-pc/fix-preview-rerender.diff
-pc/fix-scale.diff

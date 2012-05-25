@@ -1,0 +1,101 @@
+# HG changeset patch
+# Parent 2f12cb0f4423d63f85a3e3a5032d4ee32a639831
+
+diff --git a/gfx/thebes/gfxUserFontSet.cpp b/gfx/thebes/gfxUserFontSet.cpp
+--- a/gfx/thebes/gfxUserFontSet.cpp
++++ b/gfx/thebes/gfxUserFontSet.cpp
+@@ -66,16 +66,17 @@ gfxFont*
+ gfxProxyFontEntry::CreateFontInstance(const gfxFontStyle *aFontStyle, bool aNeedsBold)
+ {
+     // cannot create an actual font for a proxy entry
+     return nsnull;
+ }
+ 
+ gfxUserFontSet::gfxUserFontSet()
+ {
++    printf("=== Create new gfxUserFontSet()\n");
+     mFontFamilies.Init(5);
+     IncrementGeneration();
+ }
+ 
+ gfxUserFontSet::~gfxUserFontSet()
+ {
+ }
+ 
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1654,30 +1654,25 @@ nsPrintEngine::SetupToPrintContent()
+   bool ppIsShrinkToFit = mPrtPreview && mPrtPreview->mShrinkToFit;
+   if (ppIsShrinkToFit) {
+     mPrt->mShrinkRatio = mPrtPreview->mShrinkRatio;
+     doSetPixelScale = true;
+   }
+ 
+   nsresult rv;
+ 
+-  printf("nsPrintEngine::SetupToPrintContent - BeginReflow\n");
+-
+-  // Kill all presentations. ReflowDocList was called already once when we get here.
++  // for (int i=mPrt->mPrintDocList.Length() - 1;i>=0;i--) {
+   for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
+     nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+     NS_ASSERTION(po, "nsPrintObject can't be null!");
+-    // Wipe out the presentation before we reflow
+-    po->DestroyPresentation();
+-  }
+-
+-  // Here we reflow all the PrintObjects
+-  rv = ReflowDocList(mPrt->mPrintObject, doSetPixelScale);
+-  if (NS_FAILED(rv)) {
+-    return NS_ERROR_FAILURE;
++    printf("nsPrintEngine::SetupToPrintContent - Reconstruct %d - %p \n", i, po->mPresShell.get());
++    
++    po->mPresShell->ReconstructFrames();
++    // Process the reflow event InitialReflow posted
++    po->mPresShell->FlushPendingNotifications(Flush_Layout);
+   }
+ 
+   printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+ 
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview
+   if (mPrt->mShrinkToFit && !ppIsShrinkToFit) {
+     // Now look for the PO that has the smallest percent for shrink to fit
+@@ -1690,16 +1685,17 @@ nsPrintEngine::SetupToPrintContent()
+       }
+     } else {
+       // Single document so use the Shrink as calculated for the PO
+       mPrt->mShrinkRatio = mPrt->mPrintObject->mShrinkRatio;
+     }
+ 
+     // Only Shrink if we are smaller
+     if (mPrt->mShrinkRatio < 0.998f) {
++      printf("=== nsPrintEngine:: SetupToPrintContent - Shrink to fit on page\n");
+       for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
+         nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+         NS_ASSERTION(po, "nsPrintObject can't be null!");
+         // Wipe out the presentation before we reflow
+         po->DestroyPresentation();
+       }
+ 
+ #if (defined(XP_WIN) || defined(XP_OS2)) && defined(EXTENDED_DEBUG_PRINTING)
+@@ -2049,17 +2045,17 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+     delete styleSet;
+     return rv;
+   }
+ 
+   styleSet->EndUpdate();
+   
+   // The pres shell now owns the style set object.
+ 
+-  PR_PL(("In DV::ReflowPrintObject PO: %p (%9s) Setting w,h to %d,%d\n", aPO,
++  PR_PL(("In DV::ReflowPrintObject PO: %p pS: %p (%9s) Setting w,h to %d,%d\n", aPO, aPO->mPresShell.get(),
+          gFrameTypesStr[aPO->mFrameType], adjSize.width, adjSize.height));
+ 
+   // Create a child window of the parent that is our "root view/window"
+   nsRect tbounds = nsRect(nsPoint(0, 0), adjSize);
+   nsIView* rootView = aPO->mViewManager->CreateView(tbounds, parentView);
+   NS_ENSURE_TRUE(rootView, NS_ERROR_OUT_OF_MEMORY);
+ 
+   if (mIsCreatingPrintPreview && documentIsTopLevel) {

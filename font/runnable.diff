@@ -1,0 +1,164 @@
+# HG changeset patch
+# Parent 2f12cb0f4423d63f85a3e3a5032d4ee32a639831
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -207,17 +207,17 @@ public:
+ protected:
+   nsRefPtr<nsPrintEngine> mPrintEngine;
+   bool                    mSuppressed;
+ };
+ 
+ // Class IDs
+ static NS_DEFINE_CID(kViewManagerCID,       NS_VIEW_MANAGER_CID);
+ 
+-NS_IMPL_ISUPPORTS3(nsPrintEngine, nsIWebProgressListener, nsISupportsWeakReference, nsIObserver)
++NS_IMPL_ISUPPORTS4(nsPrintEngine, nsIWebProgressListener, nsIRunnable, nsISupportsWeakReference, nsIObserver)
+ 
+ //---------------------------------------------------
+ //-- nsPrintEngine Class Impl
+ //---------------------------------------------------
+ nsPrintEngine::nsPrintEngine() :
+   mIsCreatingPrintPreview(false),
+   mIsDoingPrinting(false),
+   mIsDoingPrintPreview(false),
+@@ -225,17 +225,18 @@ nsPrintEngine::nsPrintEngine() :
+   mScreenDPI(115.0f),
+   mPrt(nsnull),
+   mPagePrintTimer(nsnull),
+   mPageSeqFrame(nsnull),
+   mPrtPreview(nsnull),
+   mOldPrtPreview(nsnull),
+   mDebugFile(nsnull),
+   mLoadCounter(0),
+-  mLoadedContent(false)
++  mLoadedContent(false),
++  mLoadRunnableStarted(false)
+ {
+ }
+ 
+ //-------------------------------------------------------
+ nsPrintEngine::~nsPrintEngine()
+ {
+   Destroy(); // for insurance
+ }
+@@ -1879,16 +1880,30 @@ nsPrintEngine::AfterNetworkPrint()
+ 
+   if (mIsPrintPreview) {
+     FinishPrintPreview();
+   } else {
+     DocumentReadyForPrinting();
+   }
+ }
+ 
++NS_IMETHODIMP
++nsPrintEngine::Run()
++{
++  NS_ASSERTION(mLoadRunnableStarted, "Print runnable should be marked to run\n"); 
++  mLoadRunnableStarted = false;
++
++  // If all resources are loaded, finish the printing process.
++  if (mLoadCounter == 0) {
++    printf(">!>!>!> Finished loading all resources\n");
++
++    AfterNetworkPrint();
++  }
++  return NS_OK;
++}
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+                                nsIRequest *aRequest, PRUint32 aStateFlags,
+                                nsresult aStatus)
+ {
+@@ -1900,22 +1915,24 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+   if (aStateFlags & STATE_START) {
+     printf("nsPrintEngine - startRequest\n");
+     mLoadCounter++;
+     mLoadedContent = true;
+   } else if (aStateFlags & STATE_STOP) {
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+     mLoadCounter--;
+    
+-    // If all resources are loaded, then do a small timeout and if there
+-    // are still no new requests, then another reflow.
+-    if (mLoadCounter == 0) {
+-      printf(">!>!>!> Finished loading all resources\n");
+-
+-      AfterNetworkPrint();
++    // If all loads are done there still might be some stuff that needs to 
++    // finish first, before the print process can continue. Dispatch a
++    // runnable and see if then still are resources are loaded.
++    // If there is already a runnable dispatched, do nothing.
++    if (mLoadCounter == 0 || !mLoadRunnableStarted) {
++      mLoadRunnableStarted = true;
++      printf("nsPrintEngine::OnStateChange - Dispatch!\n");
++      NS_DispatchToMainThread(this);
+     }
+   }
+   return NS_OK;
+ }
+ 
+ 
+ 
+ NS_IMETHODIMP
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -35,16 +35,17 @@ class nsIWeakReference;
+ class nsIWebProgressListener;
+ 
+ //------------------------------------------------------------------------
+ // nsPrintEngine Class
+ //
+ //------------------------------------------------------------------------
+ class nsPrintEngine : public nsIWebProgressListener,
+                       public nsSupportsWeakReference,
++                      public nsIRunnable,
+                       public nsIObserver
+ {
+ public:
+   // nsISupports interface...
+   NS_DECL_ISUPPORTS
+   NS_DECL_NSIWEBPROGRESSLISTENER
+ 
+   // nsIObserver
+@@ -62,16 +63,17 @@ public:
+   NS_IMETHOD GetIsFramesetFrameSelected(bool *aIsFramesetFrameSelected);
+   NS_IMETHOD GetPrintPreviewNumPages(PRInt32 *aPrintPreviewNumPages);
+   NS_IMETHOD EnumerateDocumentNames(PRUint32* aCount, PRUnichar*** aResult);
+   static nsresult GetGlobalPrintSettings(nsIPrintSettings** aPrintSettings);
+   NS_IMETHOD GetDoingPrint(bool *aDoingPrint);
+   NS_IMETHOD GetDoingPrintPreview(bool *aDoingPrintPreview);
+   NS_IMETHOD GetCurrentPrintSettings(nsIPrintSettings **aCurrentPrintSettings);
+ 
++  NS_IMETHOD Run();
+ 
+   // This enum tells indicates what the default should be for the title
+   // if the title from the document is null
+   enum eDocTitleDefault {
+     eDocTitleDefNone,
+     eDocTitleDefBlank,
+     eDocTitleDefURLDoc
+   };
+@@ -273,16 +275,17 @@ protected:
+   nsPrintData*            mOldPrtPreview;
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
+   PRInt32                 mLoadCounter;
+   bool                    mLoadedContent;
++  bool                    mLoadRunnableStarted;
+   bool                    mIsPrintPreview; 
+ 
+   void                    AfterNetworkPrint();
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */

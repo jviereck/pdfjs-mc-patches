@@ -1,0 +1,134 @@
+# HG changeset patch
+# Parent 2f12cb0f4423d63f85a3e3a5032d4ee32a639831
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -225,17 +225,18 @@ nsPrintEngine::nsPrintEngine() :
+   mScreenDPI(115.0f),
+   mPrt(nsnull),
+   mPagePrintTimer(nsnull),
+   mPageSeqFrame(nsnull),
+   mPrtPreview(nsnull),
+   mOldPrtPreview(nsnull),
+   mDebugFile(nsnull),
+   mLoadCounter(0),
+-  mLoadedContent(false)
++  mLoadedContent(false),
++  mSetupNetworkRunnable(false)
+ {
+ }
+ 
+ //-------------------------------------------------------
+ nsPrintEngine::~nsPrintEngine()
+ {
+   Destroy(); // for insurance
+ }
+@@ -1879,16 +1880,38 @@ nsPrintEngine::AfterNetworkPrint()
+ 
+   if (mIsPrintPreview) {
+     FinishPrintPreview();
+   } else {
+     DocumentReadyForPrinting();
+   }
+ }
+ 
++class NetworkPrintTask : public nsRunnable
++{
++public:
++  NetworkPrintTask(nsPrintEngine* aPrintEngine): mPE(aPrintEngine) 
++  {} 
++
++  NS_IMETHOD Run() {
++    mPE->mSetupNetworkRunnable = false;
++    if (mPE->mLoadCounter == 0) {
++      printf("NetworkPrintTask - RUN\n");
++      mPE->AfterNetworkPrint();
++      mPE = nsnull;
++    } else {
++      printf("NetworkPrintTask - RUN - New Network!\n");
++    }
++    return NS_OK;
++  }
++
++private:
++  nsPrintEngine* mPE;
++};
++
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+                                nsIRequest *aRequest, PRUint32 aStateFlags,
+                                nsresult aStatus)
+ {
+@@ -1902,20 +1925,22 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+     mLoadCounter++;
+     mLoadedContent = true;
+   } else if (aStateFlags & STATE_STOP) {
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+     mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+-    if (mLoadCounter == 0) {
++    if (mLoadCounter == 0 && !mSetupNetworkRunnable) {
++      mSetupNetworkRunnable = true;
+       printf(">!>!>!> Finished loading all resources\n");
+-
+-      AfterNetworkPrint();
++      nsCOMPtr<nsIRunnable> task = new NetworkPrintTask(this);
++      NS_DispatchToMainThread(task);
++      // AfterNetworkPrint();
+     }
+   }
+   return NS_OK;
+ }
+ 
+ 
+ 
+ NS_IMETHODIMP
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -197,16 +197,20 @@ public:
+   {
+     mIsCreatingPrintPreview = aIsCreatingPrintPreview;
+   }
+   bool GetIsCreatingPrintPreview()
+   {
+     return mIsCreatingPrintPreview;
+   }
+ 
++  void                    AfterNetworkPrint();
++
++  PRInt32                 mLoadCounter;
++  bool                    mSetupNetworkRunnable;
+ protected:
+ 
+   nsresult CommonPrint(bool aIsPrintPreview, nsIPrintSettings* aPrintSettings,
+                        nsIWebProgressListener* aWebProgressListener,
+                        nsIDOMDocument* aDoc);
+ 
+   nsresult DoCommonPrint(bool aIsPrintPreview, nsIPrintSettings* aPrintSettings,
+                          nsIWebProgressListener* aWebProgressListener,
+@@ -271,18 +275,16 @@ protected:
+   // Print Preview
+   nsPrintData*            mPrtPreview;
+   nsPrintData*            mOldPrtPreview;
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
+-  PRInt32                 mLoadCounter;
+   bool                    mLoadedContent;
+   bool                    mIsPrintPreview; 
+ 
+-  void                    AfterNetworkPrint();
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */

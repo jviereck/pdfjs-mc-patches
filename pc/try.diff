@@ -1,0 +1,4 @@
+# HG changeset patch
+# Parent 3134122342920308f68ca7f12daf406b32d99c23
+try: -b d -e -p linux,macosx64,win32,win64 -u all -t none
+

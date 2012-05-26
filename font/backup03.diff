@@ -1,0 +1,88 @@
+# HG changeset patch
+# Parent e2f7b497627d42558f3439f6d9ff4361dc596165
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -690,5 +690,4 @@ nsPrintEngine::DoCommonPrint(bool       
+   // Attach progressListener to catch network requests.
+   nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+-  printf("<<>> SETUP WebProgress this:%p wp:%p ds:%p\n", this, webProgress.get(), mPrt->mPrintObject->mDocShell.get());
+   webProgress->AddProgressListener(
+     static_cast<nsIWebProgressListener*>(this),
+@@ -1484,5 +1483,4 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
+ nsresult nsPrintEngine::DocumentReadyForPrinting()
+ {
+-  printf(">>> nsPrintEngine::DocumentReadyForPrinting()\n");
+   if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
+     CheckForChildFrameSets(mPrt->mPrintObject);
+@@ -1649,5 +1647,4 @@ nsPrintEngine::ReconstructAndReflow(bool
+ #endif
+    
+-
+   for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
+     nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+@@ -1659,7 +1656,4 @@ nsPrintEngine::ReconstructAndReflow(bool
+ 
+     UpdateZoomRatio(po, doSetPixelScale);
+-
+-    printf("nsPrintEngine::ReconstructAndReflow: i=%d doSetPixelScale=%s mZoomRatio=%8.5f\n", 
+-        i, doSetPixelScale ? "true" : "false", po->mZoomRatio);
+     po->mPresContext->SetPageScale(po->mZoomRatio);
+ 
+@@ -1886,15 +1880,8 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+                                nsresult aStatus)
+ {
+-  // For some reasons, this never gets called???
+-  if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
+-    printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
+-  }
+-
+   if (aStateFlags & STATE_START) {
+-    printf("nsPrintEngine - startRequest\n");
+     mLoadCounter++;
+     mLoadedContent = true;
+   } else if (aStateFlags & STATE_STOP) {
+-    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+     mLoadCounter--;
+    
+@@ -1902,6 +1889,4 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+     // are still no new requests, then another reflow.
+     if (mLoadCounter == 0) {
+-      printf(">!>!>!> Finished loading all resources\n");
+-
+       AfterNetworkPrint();
+     }
+@@ -2103,6 +2088,4 @@ nsPrintEngine::SetRootView(
+   }
+ 
+-  printf("SetRootView, rootView=%p parentView=%p\, %pn",
+-      rootView, parentView, aPO->mPresShell->GetRootFrame());
+   // Setup hierarchical relationship in view manager
+   aPO->mViewManager->SetRootView(rootView);
+@@ -2115,5 +2098,4 @@ nsresult
+ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
+ {
+-  printf(">>>> nsPrintEngine::ReflowPrintObject - ENTER\n");
+   NS_ASSERTION(aPO, "Pointer is null!");
+   if (!aPO) return NS_ERROR_FAILURE;
+@@ -2177,6 +2159,4 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+          gFrameTypesStr[aPO->mFrameType], adjSize.width, adjSize.height));
+ 
+-  printf("SetRootView end\n");
+-
+   // This docshell stuff is weird; will go away when we stop having multiple
+   // presentations per document
+@@ -2203,6 +2183,4 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
+ 
+-  printf("=== nsPrintEngine::ReflowPrintObject - rootFrame=%p rootView=%p\n", aPO->mPresShell->GetRootFrame(), aPO->mPresShell->GetRootFrame()->GetView());
+-
+   NS_ENSURE_SUCCESS(rv, rv);
+   NS_ASSERTION(aPO->mPresShell, "Presshell should still be here");
+@@ -3411,5 +3389,4 @@ nsresult
+ nsPrintEngine::FinishPrintPreview()
+ {
+-  printf(">>> nsPrintEngine::FinishPrintPreview()\n");
+   nsresult rv = NS_OK;
+ 

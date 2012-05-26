@@ -1,0 +1,45 @@
+# HG changeset patch
+# Parent 72d6cf98c020e6ea574890cdc06c75a1d217421c
+diff --git a/layout/base/nsPresShell.cpp b/layout/base/nsPresShell.cpp
+--- a/layout/base/nsPresShell.cpp
++++ b/layout/base/nsPresShell.cpp
+@@ -4096,4 +4096,7 @@ PresShell::ReconstructFrames(void)
+   mDocument->FlushPendingNotifications(Flush_ContentAndNotify);
+ 
++  printf("--- PresShell: Tree before reconstruction\n");
++  mFrameConstructor->GetRootFrame()->List((FILE*)stderr, 0);
++
+   nsAutoCauseReflowNotifier crNotifier(this);
+   mFrameConstructor->BeginUpdate();
+@@ -4102,4 +4105,8 @@ PresShell::ReconstructFrames(void)
+   mFrameConstructor->EndUpdate();
+ 
++  printf("--- PresShell: Tree after reconstruction\n");
++
++  mFrameConstructor->GetRootFrame()->List((FILE*)stderr, 0);
++
+   return rv;
+ }
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1661,5 +1661,5 @@ nsPrintEngine::SetupToPrintContent()
+ 
+   // for (int i=mPrt->mPrintDocList.Length() - 1;i>=0;i--) {
+-  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
++  for (PRUint32 i=1;i<mPrt->mPrintDocList.Length();i++) {
+     nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+     NS_ASSERTION(po, "nsPrintObject can't be null!");
+@@ -1668,9 +1668,11 @@ nsPrintEngine::SetupToPrintContent()
+     po->mPresShell->ReconstructFrames();
+     // Process the reflow event InitialReflow posted
+-    po->mPresShell->FlushPendingNotifications(Flush_Layout);
++    // po->mPresShell->FlushPendingNotifications(Flush_Layout);
+   }
+ 
+   printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+ 
++  return NS_OK;
++
+   // Here is where we do the extra reflow for shrinking the content
+   // But skip this step if we are in PrintPreview

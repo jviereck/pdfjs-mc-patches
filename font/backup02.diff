@@ -1,0 +1,580 @@
+# HG changeset patch
+# Parent bfbd8f915945f1cd13ada3e35ef7bbd56b907188
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -696,4 +696,5 @@ nsPrintEngine::DoCommonPrint(bool       
+ 
+   mIsPrintPreview = aIsPrintPreview;
++
+   if (aIsPrintPreview) {
+     bool notifyOnInit = false;
+@@ -705,5 +706,5 @@ nsPrintEngine::DoCommonPrint(bool       
+     if (!notifyOnInit) {
+       InstallPrintPreviewListener();
+-      rv = ReflowDocList(mPrt->mPrintObject, false);
++      rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+       NS_ENSURE_SUCCESS(rv, rv);
+ 
+@@ -721,5 +722,5 @@ nsPrintEngine::DoCommonPrint(bool       
+       mPrt->OnStartPrinting();
+ 
+-      rv = ReflowDocList(mPrt->mPrintObject, false);
++      rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+       NS_ENSURE_SUCCESS(rv, rv);
+ 
+@@ -1633,87 +1634,81 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
+ //-----------------------------------------------------------------
+ 
++void UpdateSelectionShrintPrintObject(nsPrintObject* aPO, bool aDoReset);
++
++nsresult
++nsPrintEngine::ReconstructAndReflow(bool doSetPixelScale)
++{
++#if (defined(XP_WIN) || defined(XP_OS2)) && defined(EXTENDED_DEBUG_PRINTING)
++  // We need to clear all the output files here
++  // because they will be re-created with second reflow of the docs
++  if (kPrintingLogMod && kPrintingLogMod->level == DUMP_LAYOUT_LEVEL) {
++    RemoveFilesInDir(".\\");
++    gDumpFileNameCnt   = 0;
++    gDumpLOFileNameCnt = 0;
++  }
++#endif
++   
++
++  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
++    nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
++    NS_ASSERTION(po, "nsPrintObject can't be null!");
++
++    if (po->mDontPrint || po->mInvisible) {
++      continue;
++    }
++
++    UpdateZoomRatio(po, doSetPixelScale);
++
++    printf("nsPrintEngine::ReconstructAndReflow: i=%d doSetPixelScale=%s mZoomRatio=%8.5f\n", 
++        i, doSetPixelScale ? "true" : "false", po->mZoomRatio);
++    po->mPresContext->SetPageScale(po->mZoomRatio);
++
++    // Calculate scale factor from printer to screen
++    float printDPI = float(mPrt->mPrintDC->AppUnitsPerCSSInch()) /
++                     float(mPrt->mPrintDC->AppUnitsPerDevPixel());
++    po->mPresContext->SetPrintPreviewScale(mScreenDPI / printDPI);
++
++    po->mPresShell->ReconstructFrames();
++
++    // For all views except the first one, setup the root view.
++    // ??? Can there be multiple po for the top-level-document?
++    bool documentIsTopLevel = true;
++    if (i != 0) {
++      nsSize adjSize;
++      bool doReturn; 
++      nsresult rv = SetRootView(po, doReturn, documentIsTopLevel, adjSize);
++
++      MOZ_ASSERT(!documentIsTopLevel, "How could this happen?");
++      
++      if (NS_FAILED(rv) || doReturn) {
++        return rv; 
++      }
++    }
++
++    po->mPresShell->FlushPendingNotifications(Flush_Layout);
++
++    nsresult rv = UpdateSelectionShrinkPrintObject(po, documentIsTopLevel);
++    NS_ENSURE_SUCCESS(rv, rv);
++  }
++  return NS_OK;
++}
++
+ //-------------------------------------------------------
+ nsresult
+ nsPrintEngine::SetupToPrintContent()
+ {
+-  // In this step we figure out which documents should be printed
+-  // i.e. if we are printing the selection then only enable that nsPrintObject
+-  // for printing
+-  /*
+-  if (NS_FAILED(EnablePOsForPrinting())) {
+-    return NS_ERROR_FAILURE;
++  nsresult rv;
++
++  // If some new content got loaded since the intial reflow, then rebuild
++  // everything.
++  if (mLoadedContent) {
++    rv = ReconstructAndReflow(DoSetPixelScale());
++    NS_ENSURE_SUCCESS(rv, rv);
+   }
+-  DUMP_DOC_LIST("\nAfter Enable------------------------------------------");
+-  */
+-
+-  // This is an Optimization
+-  // If we are in PP then we already know all the shrinkage information
+-  // so just transfer it to the PrintData and we will skip the extra shrinkage reflow
+-  //
+-  // doSetPixelScale tells Reflow whether to set the shrinkage value into the DC
+-  // The first time we do not want to do this, the second time through we do
+-  bool doSetPixelScale = false;
++
++  // Here is where we figure out if extra reflow for shrinking the content
++  // is required.
++  // But skip this step if we are in PrintPreview
+   bool ppIsShrinkToFit = mPrtPreview && mPrtPreview->mShrinkToFit;
+-  if (ppIsShrinkToFit) {
+-    mPrt->mShrinkRatio = mPrtPreview->mShrinkRatio;
+-    doSetPixelScale = true;
+-  }
+-
+-  nsresult rv;
+-
+-  // for (int i=mPrt->mPrintDocList.Length() - 1;i>=0;i--) {
+-  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
+-    nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+-    NS_ASSERTION(po, "nsPrintObject can't be null!");
+-
+-    printf("nsPrintEngine::SetupToPrintContent - RootFrame=%p RootView=%p RootViewParent=%p\n", 
+-        po->mPresShell->GetRootFrame(), 
+-        po->mPresShell->GetRootFrame()->GetView(),
+-        po->mPresShell->GetRootFrame()->GetView()->GetParent()
+-      );
+-    printf("nsPrintEngine::SetupToPrintContent - Reconstruct %d - %p \n", i, po->mPresShell.get());
+-
+-    
+-    printf("nsPrintEngine::SetupToPrintContent - After Reflow %d - %p \n", i, po->mPresShell.get());
+-    // po->mPresShell->GetRootFrame()->List((FILE*)stderr, 0);
+-    po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
+-
+-    nsSize adjSize = po->mPresContext->GetPageSize();
+-    // po->mPresShell->InitialReflow(adjSize.width, adjSize.height);
+-    po->mPresShell->ReconstructFrames();
+-
+-    if (i != 0) {
+-      bool doReturn, documentIsTopLevel;
+-      rv = SetRootView(po, doReturn, documentIsTopLevel, adjSize);
+-      
+-      if (NS_FAILED(rv) || doReturn) {
+-        printf("nsPrintEngine::SetupToPrintContent - SetRootView FAILED\n");
+-        return rv; 
+-      }
+-    }
+-
+-    po->mPresShell->FlushPendingNotifications(Flush_Layout);
+-    // po->mPresShell->ResizeReflow(adjSize.width, adjSize.height);
+-
+-    nsIView* rootView = po->mPresShell->GetRootFrame()->GetView();
+-    // po->mViewManager->SetRootView(rootView);
+-
+-    printf("nsPrintEngine::SetupToPrintContent - After Reflow %d - %p \n", i, po->mPresShell.get());
+-
+-    // po->mPresShell->GetRootFrame()->List((FILE*)stderr, 0);
+-    po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
+-  }
+-  printf("nsPrintEngine::SetupToPrintContent - Final view trees:\n");
+-  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
+-    nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+-    NS_ASSERTION(po, "nsPrintObject can't be null!");
+-
+-    po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
+-  }
+-
+-  printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+-
+-  // Here is where we do the extra reflow for shrinking the content
+-  // But skip this step if we are in PrintPreview
+   if (mPrt->mShrinkToFit && !ppIsShrinkToFit) {
+     // Now look for the PO that has the smallest percent for shrink to fit
+@@ -1730,50 +1725,25 @@ nsPrintEngine::SetupToPrintContent()
+     }
+ 
+-    // Only Shrink if we are smaller
+     if (mPrt->mShrinkRatio < 0.998f) {
+-      printf("=== nsPrintEngine:: SetupToPrintContent - Shrink to fit on page\n");
+-      for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
+-        nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+-        NS_ASSERTION(po, "nsPrintObject can't be null!");
+-        // Wipe out the presentation before we reflow
+-        po->DestroyPresentation();
++      rv = ReconstructAndReflow(true);
++      NS_ENSURE_SUCCESS(rv, rv);
++    }
++
++#ifdef PR_LOGGING
++    float calcRatio = 0.0f;
++    if (mPrt->mPrintDocList.Length() > 1 && mPrt->mPrintObject->mFrameType == eFrameSet) {
++      nsPrintObject* smallestPO = FindSmallestSTF();
++      NS_ASSERTION(smallestPO, "There must always be an XMost PO!");
++      if (smallestPO) {
++        // Calc the shrinkage based on the entire content area
++        calcRatio = smallestPO->mShrinkRatio;
+       }
+-
+-#if (defined(XP_WIN) || defined(XP_OS2)) && defined(EXTENDED_DEBUG_PRINTING)
+-      // We need to clear all the output files here
+-      // because they will be re-created with second reflow of the docs
+-      if (kPrintingLogMod && kPrintingLogMod->level == DUMP_LAYOUT_LEVEL) {
+-        RemoveFilesInDir(".\\");
+-        gDumpFileNameCnt   = 0;
+-        gDumpLOFileNameCnt = 0;
+-      }
+-#endif
+-
+-      // Here we reflow all the PrintObjects a second time
+-      // this time using the shrinkage values
+-      // The last param here tells reflow to NOT calc the shrinkage values
+-      if (NS_FAILED(ReflowDocList(mPrt->mPrintObject, true))) {
+-        return NS_ERROR_FAILURE;
+-      }
++    } else {
++      // Single document so use the Shrink as calculated for the PO
++      calcRatio = mPrt->mPrintObject->mShrinkRatio;
+     }
+-
+-#ifdef PR_LOGGING
+-    {
+-      float calcRatio = 0.0f;
+-      if (mPrt->mPrintDocList.Length() > 1 && mPrt->mPrintObject->mFrameType == eFrameSet) {
+-        nsPrintObject* smallestPO = FindSmallestSTF();
+-        NS_ASSERTION(smallestPO, "There must always be an XMost PO!");
+-        if (smallestPO) {
+-          // Calc the shrinkage based on the entire content area
+-          calcRatio = smallestPO->mShrinkRatio;
+-        }
+-      } else {
+-        // Single document so use the Shrink as calculated for the PO
+-        calcRatio = mPrt->mPrintObject->mShrinkRatio;
+-      }
+-      PR_PL(("**************************************************************************\n"));
+-      PR_PL(("STF Ratio is: %8.5f Effective Ratio: %8.5f Diff: %8.5f\n", mPrt->mShrinkRatio, calcRatio,  mPrt->mShrinkRatio-calcRatio));
+-      PR_PL(("**************************************************************************\n"));
+-    }
++    PR_PL(("**************************************************************************\n"));
++    PR_PL(("STF Ratio is: %8.5f Effective Ratio: %8.5f Diff: %8.5f\n", mPrt->mShrinkRatio, calcRatio,  mPrt->mShrinkRatio-calcRatio));
++    PR_PL(("**************************************************************************\n"));
+ #endif
+   }
+@@ -1878,4 +1848,112 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   }
+ 
++  UpdateZoomRatio(aPO, aSetPixelScale);
++
++  nsresult rv;
++  // Reflow the PO
++  rv = ReflowPrintObject(aPO);
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  PRInt32 cnt = aPO->mKids.Length();
++  for (PRInt32 i=0;i<cnt;i++) {
++    rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
++    NS_ENSURE_SUCCESS(rv, rv);
++  }
++  return NS_OK;
++}
++
++void
++nsPrintEngine::AfterNetworkPrint()
++{
++  nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
++
++  webProgress->RemoveProgressListener(
++    static_cast<nsIWebProgressListener*>(this));
++
++  if (mIsPrintPreview) {
++    FinishPrintPreview();
++  } else {
++    DocumentReadyForPrinting();
++  }
++}
++
++////////////////////////////////////////////////////////////////////////////////
++// nsIWebProgressListener
++
++NS_IMETHODIMP
++nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
++                               nsIRequest *aRequest, PRUint32 aStateFlags,
++                               nsresult aStatus)
++{
++  // For some reasons, this never gets called???
++  if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
++    printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
++  }
++
++  if (aStateFlags & STATE_START) {
++    printf("nsPrintEngine - startRequest\n");
++    mLoadCounter++;
++    mLoadedContent = true;
++  } else if (aStateFlags & STATE_STOP) {
++    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
++    mLoadCounter--;
++   
++    // If all resources are loaded, then do a small timeout and if there
++    // are still no new requests, then another reflow.
++    if (mLoadCounter == 0) {
++      printf(">!>!>!> Finished loading all resources\n");
++
++      AfterNetworkPrint();
++    }
++  }
++  return NS_OK;
++}
++
++
++
++NS_IMETHODIMP
++nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest,
++                                  PRInt32 aCurSelfProgress,
++                                  PRInt32 aMaxSelfProgress,
++                                  PRInt32 aCurTotalProgress,
++                                  PRInt32 aMaxTotalProgress)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnLocationChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest, nsIURI *aLocation,
++                                  PRUint32 aFlags)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnStatusChange(nsIWebProgress *aWebProgress,
++                                nsIRequest *aRequest, nsresult aStatus,
++                                const PRUnichar *aMessage)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++nsPrintEngine::OnSecurityChange(nsIWebProgress *aWebProgress,
++                                  nsIRequest *aRequest,
++                                  PRUint32 aState)
++{
++  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
++  return NS_OK;
++}
++
++//-------------------------------------------------------
++
++void
++nsPrintEngine::UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale)
++{
+   // Here is where we set the shrinkage value into the DC
+   // and this is what actually makes it shrink
+@@ -1892,109 +1970,67 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+     mPrt->mPrintSettings->GetScaling(&scaling);
+     aPO->mZoomRatio = float(scaling);
++  } 
++}
++
++nsresult
++nsPrintEngine::UpdateSelectionShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel)
++{
++  nsCOMPtr<nsIPresShell> displayShell;
++  aPO->mDocShell->GetPresShell(getter_AddRefs(displayShell));
++  // Transfer Selection Ranges to the new Print PresShell
++  nsCOMPtr<nsISelection> selection, selectionPS;
++  // It's okay if there is no display shell, just skip copying the selection
++  if (displayShell) {
++    selection = displayShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+   }
+-
+-  nsresult rv;
+-  // Reflow the PO
+-  rv = ReflowPrintObject(aPO);
+-  NS_ENSURE_SUCCESS(rv, rv);
+-
+-  PRInt32 cnt = aPO->mKids.Length();
+-  for (PRInt32 i=0;i<cnt;i++) {
+-    rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
+-    NS_ENSURE_SUCCESS(rv, rv);
++  selectionPS = aPO->mPresShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
++
++  // Reset all existing selection ranges that might have been added by calling
++  // this function before.
++  if (selectionPS) {
++    selectionPS->RemoveAllRanges();
++  }
++  if (selection && selectionPS) {
++    PRInt32 cnt;
++    selection->GetRangeCount(&cnt);
++    PRInt32 inx;
++    for (inx=0;inx<cnt;inx++) {
++      nsCOMPtr<nsIDOMRange> range;
++      if (NS_SUCCEEDED(selection->GetRangeAt(inx, getter_AddRefs(range))))
++        selectionPS->AddRange(range);
++    }
++  }
++
++  // If we are trying to shrink the contents to fit on the page
++  // we must first locate the "pageContent" frame
++  // Then we walk the frame tree and look for the "xmost" frame
++  // this is the frame where the right-hand side of the frame extends
++  // the furthest
++  if (mPrt->mShrinkToFit && documentIsTopLevel) {
++    nsIPageSequenceFrame* pageSequence = aPO->mPresShell->GetPageSequenceFrame();
++    NS_ENSURE_STATE(pageSequence);
++    pageSequence->GetSTFPercent(aPO->mShrinkRatio);
+   }
+   return NS_OK;
+ }
+ 
+-void
+-nsPrintEngine::AfterNetworkPrint()
++bool
++nsPrintEngine::DoSetPixelScale()
+ {
+-  nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+-
+-  webProgress->RemoveProgressListener(
+-    static_cast<nsIWebProgressListener*>(this));
+-
+-  if (mIsPrintPreview) {
+-    FinishPrintPreview();
+-  } else {
+-    DocumentReadyForPrinting();
++  // This is an Optimization
++  // If we are in PP then we already know all the shrinkage information
++  // so just transfer it to the PrintData and we will skip the extra shrinkage reflow
++  //
++  // doSetPixelScale tells Reflow whether to set the shrinkage value into the DC
++  // The first time we do not want to do this, the second time through we do
++  bool doSetPixelScale = false;
++  bool ppIsShrinkToFit = mPrtPreview && mPrtPreview->mShrinkToFit;
++  if (ppIsShrinkToFit) {
++    mPrt->mShrinkRatio = mPrtPreview->mShrinkRatio;
++    doSetPixelScale = true;
+   }
++  return doSetPixelScale;
+ }
+ 
+-////////////////////////////////////////////////////////////////////////////////
+-// nsIWebProgressListener
+-
+-NS_IMETHODIMP
+-nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+-                               nsIRequest *aRequest, PRUint32 aStateFlags,
+-                               nsresult aStatus)
+-{
+-  // For some reasons, this never gets called???
+-  if (aStatus & nsIWebProgressListener::STATE_IS_NETWORK) {
+-    printf(">>>> GOT A NETWORK REQUEST <<<<\n");  
+-  }
+-
+-  if (aStateFlags & STATE_START) {
+-    printf("nsPrintEngine - startRequest\n");
+-    mLoadCounter++;
+-    mLoadedContent = true;
+-  } else if (aStateFlags & STATE_STOP) {
+-    printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+-    mLoadCounter--;
+-   
+-    // If all resources are loaded, then do a small timeout and if there
+-    // are still no new requests, then another reflow.
+-    if (mLoadCounter == 0) {
+-      printf(">!>!>!> Finished loading all resources\n");
+-
+-      AfterNetworkPrint();
+-    }
+-  }
+-  return NS_OK;
+-}
+-
+-
+-
+-NS_IMETHODIMP
+-nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
+-                                  nsIRequest *aRequest,
+-                                  PRInt32 aCurSelfProgress,
+-                                  PRInt32 aMaxSelfProgress,
+-                                  PRInt32 aCurTotalProgress,
+-                                  PRInt32 aMaxTotalProgress)
+-{
+-  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
+-  return NS_OK;
+-}
+-
+-NS_IMETHODIMP
+-nsPrintEngine::OnLocationChange(nsIWebProgress *aWebProgress,
+-                                  nsIRequest *aRequest, nsIURI *aLocation,
+-                                  PRUint32 aFlags)
+-{
+-  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
+-  return NS_OK;
+-}
+-
+-NS_IMETHODIMP
+-nsPrintEngine::OnStatusChange(nsIWebProgress *aWebProgress,
+-                                nsIRequest *aRequest, nsresult aStatus,
+-                                const PRUnichar *aMessage)
+-{
+-  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
+-  return NS_OK;
+-}
+-
+-NS_IMETHODIMP
+-nsPrintEngine::OnSecurityChange(nsIWebProgress *aWebProgress,
+-                                  nsIRequest *aRequest,
+-                                  PRUint32 aState)
+-{
+-  NS_NOTREACHED("notification excluded in AddProgressListener(...)");
+-  return NS_OK;
+-}
+-
+-//-------------------------------------------------------
+-
+ nsresult
+ nsPrintEngine::SetRootView(
+@@ -2175,34 +2211,6 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   aPO->mPresShell->FlushPendingNotifications(Flush_Layout);
+ 
+-  nsCOMPtr<nsIPresShell> displayShell;
+-  aPO->mDocShell->GetPresShell(getter_AddRefs(displayShell));
+-  // Transfer Selection Ranges to the new Print PresShell
+-  nsCOMPtr<nsISelection> selection, selectionPS;
+-  // It's okay if there is no display shell, just skip copying the selection
+-  if (displayShell) {
+-    selection = displayShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+-  }
+-  selectionPS = aPO->mPresShell->GetCurrentSelection(nsISelectionController::SELECTION_NORMAL);
+-  if (selection && selectionPS) {
+-    PRInt32 cnt;
+-    selection->GetRangeCount(&cnt);
+-    PRInt32 inx;
+-    for (inx=0;inx<cnt;inx++) {
+-      nsCOMPtr<nsIDOMRange> range;
+-      if (NS_SUCCEEDED(selection->GetRangeAt(inx, getter_AddRefs(range))))
+-        selectionPS->AddRange(range);
+-    }
+-  }
+-
+-  // If we are trying to shrink the contents to fit on the page
+-  // we must first locate the "pageContent" frame
+-  // Then we walk the frame tree and look for the "xmost" frame
+-  // this is the frame where the right-hand side of the frame extends
+-  // the furthest
+-  if (mPrt->mShrinkToFit && documentIsTopLevel) {
+-    nsIPageSequenceFrame* pageSequence = aPO->mPresShell->GetPageSequenceFrame();
+-    NS_ENSURE_STATE(pageSequence);
+-    pageSequence->GetSTFPercent(aPO->mShrinkRatio);
+-  }
++  rv = UpdateSelectionShrinkPrintObject(aPO, documentIsTopLevel);
++  NS_ENSURE_SUCCESS(rv, rv);
+ 
+ #ifdef EXTENDED_DEBUG_PRINTING
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -284,4 +284,8 @@ protected:
+ 
+   nsresult                SetRootView(nsPrintObject* aPO, bool& doReturn, bool&documentIsTopLevel, nsSize& adjSize);
++  bool                    DoSetPixelScale();
++  void                    UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale);
++  nsresult                ReconstructAndReflow(bool doSetPixelScale);
++  nsresult                UpdateSelectionShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel);
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;

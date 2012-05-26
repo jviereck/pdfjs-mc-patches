@@ -1,0 +1,113 @@
+# HG changeset patch
+# Parent 691d78a723476fde47c9a6e8eab742e682c945f2
+diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
+--- a/layout/base/nsDocumentViewer.cpp
++++ b/layout/base/nsDocumentViewer.cpp
+@@ -2364,4 +2364,6 @@ DocumentViewerImpl::FindContainerView()
+   nsIView* containerView = nsnull;
+ 
++  printf("DocumentViewerImpl::FindContainerView() - ENTER\n");
++
+   if (mContainer) {
+     nsCOMPtr<nsIDocShellTreeItem> docShellItem = do_QueryReferent(mContainer);
+@@ -2390,4 +2392,5 @@ DocumentViewerImpl::FindContainerView()
+         NS_WARNING("Subdocument container has no presshell");
+       } else {
++        printf("=== DocumentViewerImpl::FindContainerView() - parentPresShell %p\n", parentPresShell.get());
+         nsIFrame* f = parentPresShell->GetRealPrimaryFrameFor(containerElement);
+         if (f) {
+diff --git a/layout/base/nsPresShell.cpp b/layout/base/nsPresShell.cpp
+--- a/layout/base/nsPresShell.cpp
++++ b/layout/base/nsPresShell.cpp
+@@ -4096,6 +4096,4 @@ PresShell::ReconstructFrames(void)
+   mDocument->FlushPendingNotifications(Flush_ContentAndNotify);
+ 
+-  printf("--- PresShell: Tree before reconstruction\n");
+-  mFrameConstructor->GetRootFrame()->List((FILE*)stderr, 0);
+ 
+   nsAutoCauseReflowNotifier crNotifier(this);
+@@ -4105,7 +4103,4 @@ PresShell::ReconstructFrames(void)
+   mFrameConstructor->EndUpdate();
+ 
+-  printf("--- PresShell: Tree after reconstruction\n");
+-
+-  mFrameConstructor->GetRootFrame()->List((FILE*)stderr, 0);
+ 
+   return rv;
+diff --git a/layout/generic/nsSubDocumentFrame.cpp b/layout/generic/nsSubDocumentFrame.cpp
+--- a/layout/generic/nsSubDocumentFrame.cpp
++++ b/layout/generic/nsSubDocumentFrame.cpp
+@@ -176,4 +176,5 @@ void
+ nsSubDocumentFrame::ShowViewer()
+ {
++  printf("nsSubDocumentFrame::ShowViewer() - Enter\n");
+   if (mCallingShow) {
+     return;
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1664,12 +1664,28 @@ nsPrintEngine::SetupToPrintContent()
+     nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
+     NS_ASSERTION(po, "nsPrintObject can't be null!");
++
++    printf("nsPrintEngine::SetupToPrintContent - RootFrame=%p RootView=%p\n", po->mPresShell->GetRootFrame(), po->mPresShell->GetRootFrame()->GetView());
+     printf("nsPrintEngine::SetupToPrintContent - Reconstruct %d - %p \n", i, po->mPresShell.get());
++
+     
++    printf("nsPrintEngine::SetupToPrintContent - After Reflow %d - %p \n", i, po->mPresShell.get());
++    // po->mPresShell->GetRootFrame()->List((FILE*)stderr, 0);
++    po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
++   
++    // nsIView* rootView = po->mViewManager->GetRootView();
++    // printf("nsPrintEngien::SetupToPrintContent - backup rootView=%p\n", rootView);
++
+     nsSize adjSize = po->mPresContext->GetPageSize();
++    // po->mPresShell->InitialReflow(adjSize.width, adjSize.height);
+     po->mPresShell->ReconstructFrames();
+-    po->mPresShell->ResizeReflow(adjSize.width, adjSize.height);
++    po->mPresShell->FlushPendingNotifications(Flush_Layout);
++    // po->mPresShell->ResizeReflow(adjSize.width, adjSize.height);
++
++    // po->mViewManager->SetRootView(rootView);
+ 
+     printf("nsPrintEngine::SetupToPrintContent - After Reflow %d - %p \n", i, po->mPresShell.get());
+-    po->mPresShell->ReconstructFrames();
++
++    // po->mPresShell->GetRootFrame()->List((FILE*)stderr, 0);
++    po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
+   }
+ 
+@@ -2066,10 +2082,16 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   }
+ 
++  printf("SetRootView\n");
+   // Setup hierarchical relationship in view manager
+   aPO->mViewManager->SetRootView(rootView);
+ 
++  printf("SetRootView end\n");
++
+   // This docshell stuff is weird; will go away when we stop having multiple
+   // presentations per document
+   nsCOMPtr<nsISupports> supps(do_QueryInterface(aPO->mDocShell));
++
++  printf("SetRootView later\n");
++
+   aPO->mPresContext->SetContainer(supps);
+ 
+@@ -2092,4 +2114,6 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
+ 
++  printf("=== nsPrintEngine::ReflowPrintObject - rootFrame=%p rootView=%p\n", aPO->mPresShell->GetRootFrame(), aPO->mPresShell->GetRootFrame()->GetView());
++
+   NS_ENSURE_SUCCESS(rv, rv);
+   NS_ASSERTION(aPO->mPresShell, "Presshell should still be here");
+diff --git a/view/src/nsView.cpp b/view/src/nsView.cpp
+--- a/view/src/nsView.cpp
++++ b/view/src/nsView.cpp
+@@ -526,4 +526,6 @@ void nsView::InsertChild(nsView *aChild,
+   NS_PRECONDITION(nsnull != aChild, "null ptr");
+ 
++  printf("> nsView::InsertChild - this=%p aChild=%p aSibling=%p\n", this, aChild, aSibling);
++
+   if (nsnull != aChild)
+   {

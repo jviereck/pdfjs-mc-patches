@@ -1,0 +1,208 @@
+# HG changeset patch
+# Parent 51cfb3271d486a556fd1a88b511919c35b9c673d
+
+diff --git a/layout/printing/Makefile.in b/layout/printing/Makefile.in
+--- a/layout/printing/Makefile.in
++++ b/layout/printing/Makefile.in
+@@ -38,4 +38,5 @@ LOCAL_INCLUDES += \
+ 		-I$(srcdir)/../base \
+ 		-I$(srcdir)/../../content/base/src \
++		-I$(srcdir)/../../view/src \
+ 		$(NULL)
+ 
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -126,4 +126,6 @@ static const char kPrintingPromptService
+ #include "mozilla/dom/Element.h"
+ 
++#include "nsView.h"
++
+ using namespace mozilla;
+ using namespace mozilla::dom;
+@@ -1665,5 +1667,9 @@ nsPrintEngine::SetupToPrintContent()
+     NS_ASSERTION(po, "nsPrintObject can't be null!");
+ 
+-    printf("nsPrintEngine::SetupToPrintContent - RootFrame=%p RootView=%p\n", po->mPresShell->GetRootFrame(), po->mPresShell->GetRootFrame()->GetView());
++    printf("nsPrintEngine::SetupToPrintContent - RootFrame=%p RootView=%p RootViewParent=%p\n", 
++        po->mPresShell->GetRootFrame(), 
++        po->mPresShell->GetRootFrame()->GetView(),
++        po->mPresShell->GetRootFrame()->GetView()->GetParent()
++      );
+     printf("nsPrintEngine::SetupToPrintContent - Reconstruct %d - %p \n", i, po->mPresShell.get());
+ 
+@@ -1672,14 +1678,23 @@ nsPrintEngine::SetupToPrintContent()
+     // po->mPresShell->GetRootFrame()->List((FILE*)stderr, 0);
+     po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
+-   
+-    // nsIView* rootView = po->mViewManager->GetRootView();
+-    // printf("nsPrintEngien::SetupToPrintContent - backup rootView=%p\n", rootView);
+ 
+     nsSize adjSize = po->mPresContext->GetPageSize();
+     // po->mPresShell->InitialReflow(adjSize.width, adjSize.height);
+     po->mPresShell->ReconstructFrames();
++
++    if (i != 0) {
++      bool doReturn, documentIsTopLevel;
++      rv = SetRootView(po, doReturn, documentIsTopLevel, adjSize);
++      
++      if (NS_FAILED(rv) || doReturn) {
++        printf("nsPrintEngine::SetupToPrintContent - SetRootView FAILED\n");
++        return rv; 
++      }
++    }
++
+     po->mPresShell->FlushPendingNotifications(Flush_Layout);
+     // po->mPresShell->ResizeReflow(adjSize.width, adjSize.height);
+ 
++    nsIView* rootView = po->mPresShell->GetRootFrame()->GetView();
+     // po->mViewManager->SetRootView(rootView);
+ 
+@@ -1689,4 +1704,11 @@ nsPrintEngine::SetupToPrintContent()
+     po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
+   }
++  printf("nsPrintEngine::SetupToPrintContent - Final view trees:\n");
++  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
++    nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
++    NS_ASSERTION(po, "nsPrintObject can't be null!");
++
++    po->mPresShell->GetRootFrame()->GetView()->List((FILE*)stderr, 0);
++  }
+ 
+   printf("nsPrintEngine::SetupToPrintContent - EndReflow\n");
+@@ -1974,20 +1996,20 @@ nsPrintEngine::OnSecurityChange(nsIWebPr
+ 
+ //-------------------------------------------------------
+-// Reflow a nsPrintObject
++
+ nsresult
+-nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
++nsPrintEngine::SetRootView(
++    nsPrintObject* aPO, 
++    bool& doReturn, 
++    bool& documentIsTopLevel, 
++    nsSize& adjSize
++)
+ {
+-  printf(">>>> nsPrintEngine::ReflowPrintObject - ENTER\n");
+-  NS_ASSERTION(aPO, "Pointer is null!");
+-  if (!aPO) return NS_ERROR_FAILURE;
+-
+-  nsSize adjSize;
+-  bool documentIsTopLevel;
+-  if (!aPO->IsPrintable())
+-    return NS_OK;
+-
+   bool canCreateScrollbars = true;
++
++  nsIView* rootView;
+   nsIView* parentView = nsnull;
+ 
++  doReturn = false;
++
+   if (aPO->mParent && aPO->mParent->IsPrintable()) {
+     nsIFrame* frame = aPO->mContent ? aPO->mContent->GetPrimaryFrame() : nsnull;
+@@ -1996,4 +2018,5 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+     if (!frame) {
+       SetPrintPO(aPO, false);
++      doReturn = true;
+       return NS_OK;
+     }
+@@ -2029,4 +2052,38 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   }
+ 
++  if (aPO->mPresShell->GetRootFrame()) {
++    // Reuse the root view that is already on the root frame.
++    rootView = aPO->mPresShell->GetRootFrame()->GetView();
++    reinterpret_cast<nsView*>(rootView)->SetParent(reinterpret_cast<nsView*>(parentView));
++  } else {
++    // Create a child window of the parent that is our "root view/window"
++    nsRect tbounds = nsRect(nsPoint(0, 0), adjSize);
++    rootView = aPO->mViewManager->CreateView(tbounds, parentView);
++    NS_ENSURE_TRUE(rootView, NS_ERROR_OUT_OF_MEMORY);
++  }
++    
++  if (mIsCreatingPrintPreview && documentIsTopLevel) {
++    aPO->mPresContext->SetPaginatedScrolling(canCreateScrollbars);
++  }
++
++  printf("SetRootView, rootView=%p parentView=%p\, %pn",
++      rootView, parentView, aPO->mPresShell->GetRootFrame());
++  // Setup hierarchical relationship in view manager
++  aPO->mViewManager->SetRootView(rootView);
++
++  return NS_OK;
++}
++
++// Reflow a nsPrintObject
++nsresult
++nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
++{
++  printf(">>>> nsPrintEngine::ReflowPrintObject - ENTER\n");
++  NS_ASSERTION(aPO, "Pointer is null!");
++  if (!aPO) return NS_ERROR_FAILURE;
++
++  if (!aPO->IsPrintable())
++    return NS_OK;
++  
+   NS_ASSERTION(!aPO->mPresContext, "Recreating prescontext");
+ 
+@@ -2070,20 +2127,18 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   // The pres shell now owns the style set object.
+ 
++
++  bool doReturn;
++  bool documentIsTopLevel;
++  nsSize adjSize; 
++
++  rv = SetRootView(aPO, doReturn, documentIsTopLevel, adjSize);
++
++  if (NS_FAILED(rv) || doReturn) {
++    return rv; 
++  }
++
+   PR_PL(("In DV::ReflowPrintObject PO: %p pS: %p (%9s) Setting w,h to %d,%d\n", aPO, aPO->mPresShell.get(),
+          gFrameTypesStr[aPO->mFrameType], adjSize.width, adjSize.height));
+ 
+-  // Create a child window of the parent that is our "root view/window"
+-  nsRect tbounds = nsRect(nsPoint(0, 0), adjSize);
+-  nsIView* rootView = aPO->mViewManager->CreateView(tbounds, parentView);
+-  NS_ENSURE_TRUE(rootView, NS_ERROR_OUT_OF_MEMORY);
+-
+-  if (mIsCreatingPrintPreview && documentIsTopLevel) {
+-    aPO->mPresContext->SetPaginatedScrolling(canCreateScrollbars);
+-  }
+-
+-  printf("SetRootView\n");
+-  // Setup hierarchical relationship in view manager
+-  aPO->mViewManager->SetRootView(rootView);
+-
+   printf("SetRootView end\n");
+ 
+@@ -2092,6 +2147,4 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+   nsCOMPtr<nsISupports> supps(do_QueryInterface(aPO->mDocShell));
+ 
+-  printf("SetRootView later\n");
+-
+   aPO->mPresContext->SetContainer(supps);
+ 
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -282,4 +282,6 @@ protected:
+ 
+   void                    AfterNetworkPrint();
++
++  nsresult                SetRootView(nsPrintObject* aPO, bool& doReturn, bool&documentIsTopLevel, nsSize& adjSize);
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+diff --git a/view/public/nsIView.h b/view/public/nsIView.h
+--- a/view/public/nsIView.h
++++ b/view/public/nsIView.h
+@@ -194,4 +194,6 @@ public:
+   nsIView* GetParent() const { return reinterpret_cast<nsIView*>(mParent); }
+ 
++  void SetParent(nsIView* aParent) { mParent = reinterpret_cast<nsView*>(aParent); }; 
++
+   /**
+    * The view's first child is the child which is earliest in document order.

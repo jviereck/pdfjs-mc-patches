@@ -1,0 +1,36 @@
+# HG changeset patch
+# Parent 2a45bbf165312f170c5832a10728cd3dc0fab3f3
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -292,25 +292,25 @@ nsHTMLCanvasElement::CopyInnerTo(nsGener
+     nsHTMLCanvasElement* dest = static_cast<nsHTMLCanvasElement*>(aDest);
+     nsHTMLCanvasElement* self = const_cast<nsHTMLCanvasElement*>(this);
+ 
+     // By default, we assume this canvas will be displayed in PrintPreview.
+     dest->mIsPrintPreview = true;
+     dest->mPrintCallback = self->mPrintCallback;
+     dest->mOriginalCanvas = self;
+ 
+-    nsCOMPtr<nsISupports> cxt;
+-    dest->GetContext(NS_LITERAL_STRING("2d"), JSVAL_VOID, getter_AddRefs(cxt));
+-    nsCOMPtr<nsIDOMCanvasRenderingContext2D> context2d = do_QueryInterface(cxt);
+-
+     // Mark the canvas to be a "PrintCanvas" in case there is a special
+     // rendering callback for printing.
+     if (dest->mPrintCallback) {
+       dest->mIsPrintCanvas = true;
+     }
++
++    nsCOMPtr<nsISupports> cxt;
++    dest->GetContext(NS_LITERAL_STRING("2d"), JSVAL_VOID, getter_AddRefs(cxt));
++    nsCOMPtr<nsIDOMCanvasRenderingContext2D> context2d = do_QueryInterface(cxt);
+     
+     if (context2d && !dest->mIsPrintCanvas) {
+       context2d->DrawImage(self,
+                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0);
+     }
+   }
+   return rv;
+ }

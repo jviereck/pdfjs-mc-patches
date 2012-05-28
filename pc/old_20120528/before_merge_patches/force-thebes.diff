@@ -1,0 +1,18 @@
+# HG changeset patch
+# Parent ca9387d6aeccc3f8dbc71f4e829138f23362213a
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -570,7 +570,10 @@
+ {
+   nsresult rv;
+ 
+-  bool forceThebes = false;
++  // xxx force thebes if this is a print canvas.
++  // Remove this once the Azure backend has the right now not implemented
++  // functions for the printCanvas usecase ready.
++  bool forceThebes = mIsPrintCanvas;
+ 
+   while (mCurrentContextId.IsEmpty()) {
+     rv = GetContextHelper(aContextId, forceThebes, getter_AddRefs(mCurrentContext));

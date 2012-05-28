@@ -1,0 +1,62 @@
+# HG changeset patch
+# Parent 7872c29089a8d31b2b6264980c2eefb2a2e08813
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -70,9 +70,8 @@
+ using namespace mozilla::dom;
+ using namespace mozilla::layers;
+ 
+-#define NS_ICANVASPRINTSTATE_IID \                                              
+-  {0x8d5fb8a0, 0x7782, 0x11e1, \                                                
+-    { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
++#define NS_ICANVASPRINTSTATE_IID \
++   {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
+ 
+ class nsCanvasPrintState : public nsICanvasPrintState
+ {
+@@ -120,6 +119,7 @@
+ NS_INTERFACE_MAP_BEGIN(nsCanvasPrintState)
+   NS_INTERFACE_MAP_ENTRY(nsCanvasPrintState)
+   NS_INTERFACE_MAP_ENTRY(nsICanvasPrintState)
++  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(CanvasPrintState)
+   NS_INTERFACE_MAP_ENTRY(nsISupports)
+ NS_INTERFACE_MAP_END
+ 
+diff --git a/dom/base/nsDOMClassInfo.cpp b/dom/base/nsDOMClassInfo.cpp
+--- a/dom/base/nsDOMClassInfo.cpp
++++ b/dom/base/nsDOMClassInfo.cpp
+@@ -1311,6 +1311,8 @@
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+   NS_DEFINE_CLASSINFO_DATA(ImageData, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
++  NS_DEFINE_CLASSINFO_DATA(CanvasPrintState, nsDOMGenericSH,
++                           DOM_DEFAULT_SCRIPTABLE_FLAGS)
+ 
+   NS_DEFINE_CLASSINFO_DATA(SmartCardEvent, nsDOMGenericSH,
+                            DOM_DEFAULT_SCRIPTABLE_FLAGS)
+@@ -3884,6 +3886,10 @@
+     DOM_CLASSINFO_MAP_ENTRY(nsIDOMImageData)
+   DOM_CLASSINFO_MAP_END
+ 
++  DOM_CLASSINFO_MAP_BEGIN(CanvasPrintState, nsICanvasPrintState)
++    DOM_CLASSINFO_MAP_ENTRY(nsICanvasPrintState)
++  DOM_CLASSINFO_MAP_END
++
+   DOM_CLASSINFO_MAP_BEGIN(XSLTProcessor, nsIXSLTProcessor)
+     DOM_CLASSINFO_MAP_ENTRY(nsIXSLTProcessor)
+     DOM_CLASSINFO_MAP_ENTRY(nsIXSLTProcessorPrivate)
+diff --git a/dom/base/nsDOMClassInfoClasses.h b/dom/base/nsDOMClassInfoClasses.h
+--- a/dom/base/nsDOMClassInfoClasses.h
++++ b/dom/base/nsDOMClassInfoClasses.h
+@@ -351,7 +351,8 @@
+ DOMCI_CLASS(CanvasPattern)
+ DOMCI_CLASS(TextMetrics)
+ DOMCI_CLASS(ImageData)
+-
++DOMCI_CLASS(CanvasPrintState)
++  
+ // SmartCard Events
+ DOMCI_CLASS(SmartCardEvent)
+   

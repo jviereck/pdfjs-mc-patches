@@ -1,0 +1,468 @@
+# HG changeset patch
+# Parent 57e606c247255209c677de799518074929f9c678
+
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
+@@ -52,16 +52,17 @@
+ #include "nsICanvasElementExternal.h"
+ #include "nsIDOMCanvasRenderingContext2D.h"
+ #include "nsLayoutUtils.h"
+ 
+ #include "Layers.h"
+ 
+ class nsIDOMFile;
+ class nsCanvasPrintState;
++class nsITimerCallback;
+ 
+ class nsHTMLCanvasElement : public nsGenericHTMLElement,
+                             public nsICanvasElementExternal,
+                             public nsIDOMHTMLCanvasElement
+ {
+   typedef mozilla::layers::CanvasLayer CanvasLayer;
+   typedef mozilla::layers::LayerManager LayerManager;
+ 
+@@ -223,14 +224,14 @@ public:
+   bool mIsPrintCanvas;
+   bool mIsPrintPreview;
+   
+   bool IsPrintCallbackDone();
+   bool IsPrintCallbackAborted();
+ 
+   bool HandlePrintCallback();
+ 
+-  void CallPrintCallback();
++  void CallPrintCallback(nsITimerCallback *aCallback);
+ 
+   nsIDOMHTMLCanvasElement* GetOriginalCanvas();
+ };
+ 
+ #endif /* nsHTMLCanvasElement_h__ */
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -53,16 +53,17 @@
+ #include "mozilla/Preferences.h"
+ #include "mozilla/Telemetry.h"
+ 
+ #include "nsFrameManager.h"
+ #include "nsDisplayList.h"
+ #include "ImageLayers.h"
+ #include "BasicLayers.h"
+ #include "imgIEncoder.h"
++#include "nsITimer.h"
+ 
+ #include "nsIWritablePropertyBag2.h"
+ 
+ #include "nsIDOMHTMLCanvasElement.h"
+ 
+ #define DEFAULT_CANVAS_WIDTH 300
+ #define DEFAULT_CANVAS_HEIGHT 150
+ 
+@@ -73,52 +74,65 @@ using namespace mozilla::layers;
+ #define NS_ICANVASPRINTSTATE_IID \
+    {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
+ 
+ class nsCanvasPrintState : public nsICanvasPrintState
+ {
+ public:
+   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
+ 
+-  nsCanvasPrintState(nsICanvasRenderingContextInternal *aContext)
+-      : mIsDone(false), mIsAborted(false), mContext(aContext)
++  nsCanvasPrintState(nsICanvasRenderingContextInternal *aContext, nsITimerCallback *aCallback)
++      : mIsDone(false), mIsAborted(false), mContext(aContext), mCallback(aCallback)
+   {
+   }
+ 
+   NS_IMETHOD GetContext(nsISupports **context)
+   {
+     printf("=== GetContext2\n");
+     NS_ADDREF(*context = mContext);
+     return NS_OK;
+   }
+ 
+   NS_IMETHOD Done()
+   {
+     printf("CPS::Done\n");
+-    mIsDone = true;
++    finalize(false);
+     return NS_OK;
+   }
+ 
+   NS_IMETHOD Abort()
+   {
+     printf("CPS::Abort\n");
+-    mIsAborted = true;
++    finalize(true);
+     return NS_OK;
+   }
+ 
++  void finalize(bool aAborted)
++  {
++    if (!mIsDone) {
++      mIsDone = true;
++      mIsAborted = aAborted;
++      if (mCallback) {
++        mCallback->Notify(nsnull);
++      }
++    }
++  }
++
+   bool mIsDone;
+   bool mIsAborted;
+   
+   NS_DECL_ISUPPORTS
+ private:
+   ~nsCanvasPrintState() 
+   {
++    printf("--- nsCanvasPrintState::Destory\n");
+   }
+ 
+   nsCOMPtr<nsICanvasRenderingContextInternal> mContext;
++  nsCOMPtr<nsITimerCallback> mCallback;
+ protected:
+   /* additional members */
+ };
+ 
+ NS_DEFINE_STATIC_IID_ACCESSOR(nsCanvasPrintState, NS_ICANVASPRINTSTATE_IID) 
+ 
+ NS_IMPL_ADDREF(nsCanvasPrintState)
+ NS_IMPL_RELEASE(nsCanvasPrintState)
+@@ -244,26 +258,26 @@ nsHTMLCanvasElement::HandlePrintCallback
+   if (mIsReadyToPrint || !mIsPrintCanvas || !mIsPrintPreview) {
+     printf("=== handleprintcallback:early quit\n");
+     return true;
+   }
+ 
+   printf("=== HandlePrintCallback:continue\n");
+ 
+   mIsReadyToPrint = true;
+-  CallPrintCallback();
++  CallPrintCallback(nsnull);
+   return true;
+ }
+ 
+ void
+-nsHTMLCanvasElement::CallPrintCallback()
++nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
+ {
+   printf("=== CE::CallPrintCallback\n");
+   // ??? Any ADD_REF magic to be done here ???
+-  mPrintState = new nsCanvasPrintState(mCurrentContext);
++  mPrintState = new nsCanvasPrintState(mCurrentContext, aCallback);
+   mPrintCallback->Render(mPrintState);
+ }
+ 
+ bool
+ nsHTMLCanvasElement::IsPrintCallbackDone()
+ {
+   printf("=== CE:IsPrintCallbackDone\n");
+   if (mPrintState == nsnull) {
+diff --git a/layout/generic/nsIPageSequenceFrame.h b/layout/generic/nsIPageSequenceFrame.h
+--- a/layout/generic/nsIPageSequenceFrame.h
++++ b/layout/generic/nsIPageSequenceFrame.h
+@@ -37,16 +37,17 @@
+ #ifndef nsIPageSequenceFrame_h___
+ #define nsIPageSequenceFrame_h___
+ 
+ #include "nsQueryFrame.h"
+ #include "nsRect.h"
+ 
+ class nsPresContext;
+ class nsIPrintSettings;
++class nsITimerCallback;
+ 
+ /**
+  * Interface for accessing special capabilities of the page sequence frame.
+  *
+  * Today all that exists are member functions for printing.
+  */
+ class nsIPageSequenceFrame : public nsQueryFrame
+ {
+@@ -66,17 +67,17 @@ public:
+    *            and the start page is greater than the total number of pages
+    *          NS_ERROR_FAILURE if there is an error
+    */
+   NS_IMETHOD StartPrint(nsPresContext*  aPresContext,
+                         nsIPrintSettings* aPrintOptions,
+                         PRUnichar* aDocTitle,
+                         PRUnichar* aDocURL) = 0;
+ 
+-  NS_IMETHOD PrePrintNextPage(bool *aDone, bool *aAborted) = 0;
++  NS_IMETHOD PrePrintNextPage(nsITimerCallback *aCallback, bool *aDone, bool *aAborted) = 0;
+   NS_IMETHOD PrintNextPage() = 0;
+   NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum) = 0;
+   NS_IMETHOD GetNumPages(PRInt32* aNumPages) = 0;
+   NS_IMETHOD IsDoingPrintRange(bool* aDoing) = 0;
+   NS_IMETHOD GetPrintRange(PRInt32* aFromPage, PRInt32* aToPage) = 0;
+ 
+   NS_IMETHOD DoPageEnd() = 0;
+   NS_IMETHOD SetSelectionHeight(nscoord aYOffset, nscoord aHeight) = 0;
+diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
+--- a/layout/generic/nsSimplePageSequence.cpp
++++ b/layout/generic/nsSimplePageSequence.cpp
+@@ -605,17 +605,17 @@ nsSimplePageSequenceFrame::ComputePrintT
+   }
+   
+   if (nsIPrintSettings::kRangeSelection == mPrintRangeType) {
+     mPrintThisPage = true;
+   }
+ }
+ 
+ NS_IMETHODIMP
+-nsSimplePageSequenceFrame::PrePrintNextPage(bool* aDone, bool* aAborted)
++nsSimplePageSequenceFrame::PrePrintNextPage(nsITimerCallback *aCallback, bool* aDone, bool* aAborted)
+ {
+   *aAborted = false;
+   printf("--- SPSF::PrePrintNextPage : ENTER\n");
+   if (mCurrentPageFrame == nsnull) {
+     *aDone = true;
+     return NS_ERROR_FAILURE;
+   }
+   
+@@ -679,17 +679,17 @@ nsSimplePageSequenceFrame::PrePrintNextP
+ 
+         // Initialize the context with the new printSurface.
+       ctx->InitializeWithSurface(NULL, printSurface, size.width, size.height);
+ 
+       // This canvas is not intended for preview. 
+       canvas->mIsPrintPreview = false;
+ 
+       // Start the rendering process.
+-      canvas->CallPrintCallback();
++      canvas->CallPrintCallback(aCallback);
+       printf(">>> Context: setup!\n");
+     }
+   }
+ 
+   PRInt32 doneCounter = 0;
+   for (PRInt32 i = mCurrentCanvasList.Length() - 1; i >= 0 ; i--) {
+     nsHTMLCanvasElement *canvas = mCurrentCanvasList[i];
+ 
+@@ -755,17 +755,17 @@ nsSimplePageSequenceFrame::PrintNextPage
+ 
+     // cast the frame to be a page frame
+     nsPageFrame * pf = static_cast<nsPageFrame*>(mCurrentPageFrame);
+     pf->SetPageNumInfo(mPageNum, mTotalPages);
+     pf->SetSharedPageData(mPageData);
+ 
+     PRInt32 printedPageNum = 1;
+     while (continuePrinting) {
+-      printf("=== LOOP:ITER ===");
++      printf("=== LOOP:ITER ===\n");
+       if (PresContext()->IsRootPaginatedDocument()) {
+         if (!mCalledBeginPage) {
+           printf("=== Begin Page ===\n");
+           PR_PL(("\n"));
+           PR_PL(("***************** BeginPage *****************\n"));
+           rv = dc->BeginPage();
+           NS_ENSURE_SUCCESS(rv, rv);
+         } else {
+@@ -802,17 +802,17 @@ nsSimplePageSequenceFrame::PrintNextPage
+         PR_PL(("***************** End Page (PrintNextPage) *****************\n"));
+         rv = dc->EndPage();
+         printf("=== End Page ===");
+         NS_ENSURE_SUCCESS(rv, rv);
+       } else {
+         continuePrinting = false;
+       }
+     }
+-    printf("=== LOOP:EXIT ===");
++    printf("=== LOOP:EXIT ===\n");
+   }
+   return rv;
+ }
+ 
+ NS_IMETHODIMP
+ nsSimplePageSequenceFrame::DoPageEnd()
+ {
+   nsresult rv = NS_OK;
+diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
+--- a/layout/generic/nsSimplePageSequence.h
++++ b/layout/generic/nsSimplePageSequence.h
+@@ -105,17 +105,17 @@ public:
+   NS_IMETHOD GetSTFPercent(float& aSTFPercent);
+ 
+   // Async Printing
+   NS_IMETHOD StartPrint(nsPresContext*  aPresContext,
+                         nsIPrintSettings* aPrintSettings,
+                         PRUnichar*        aDocTitle,
+                         PRUnichar*        aDocURL);
+ 
+-  NS_IMETHOD PrePrintNextPage(bool *aDone, bool *aAborted);
++  NS_IMETHOD PrePrintNextPage(nsITimerCallback *aCallback, bool *aDone, bool *aAborted);
+   NS_IMETHOD PrintNextPage();
+   NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum);
+   NS_IMETHOD GetNumPages(PRInt32* aNumPages);
+   NS_IMETHOD IsDoingPrintRange(bool* aDoing);
+   NS_IMETHOD GetPrintRange(PRInt32* aFromPage, PRInt32* aToPage);
+   NS_IMETHOD DoPageEnd();
+ 
+   // We must allow Print Preview UI to have a background, no matter what the
+diff --git a/layout/printing/nsPagePrintTimer.cpp b/layout/printing/nsPagePrintTimer.cpp
+--- a/layout/printing/nsPagePrintTimer.cpp
++++ b/layout/printing/nsPagePrintTimer.cpp
+@@ -79,56 +79,64 @@ nsPagePrintTimer::StartTimer(bool aUseDe
+         delay = mDelay;
+       }
+     }
+     mTimer->InitWithCallback(this, delay, nsITimer::TYPE_ONE_SHOT);
+   }
+   return result;
+ }
+ 
++//nsRunnable
++NS_IMETHODIMP
++nsPagePrintTimer::Run() 
++{
++  printf("=== nsPagePrintTimer::Run()\n");
++  bool initNewTimer = true;
++  // Check to see if we are done
++  // inRange will be true if a page is actually printed
++  bool inRange;
++  bool donePrinting;
+ 
++  printf("--- donePrePrint!\n");
++  // donePrinting will be true if it completed successfully or
++  // if the printing was cancelled
++  donePrinting = mPrintEngine->PrintPage(mPrintObj, inRange);
++  if (donePrinting) {
++    // now clean up print or print the next webshell
++    if (mPrintEngine->DonePrintingPages(mPrintObj, NS_OK)) {
++      initNewTimer = false;
++    }
++  }
++
++  // Note that the Stop() destroys this after the print job finishes
++  // (The PrintEngine stops holding a reference when DonePrintingPages
++  // returns true.)
++  Stop(); 
++  if (initNewTimer) {
++    ++mFiringCount;
++    nsresult result = StartTimer(inRange);
++    if (NS_FAILED(result)) {
++      donePrinting = true;     // had a failure.. we are finished..
++      mPrintEngine->SetIsPrinting(false);
++    }
++  }
++  return NS_OK;
++};
+ 
+ // nsITimerCallback
+ NS_IMETHODIMP
+ nsPagePrintTimer::Notify(nsITimer *timer)
+ {
+   if (mDocViewerPrint) {
+-    bool initNewTimer = true;
+-    // Check to see if we are done
+-    // inRange will be true if a page is actually printed
+-    bool inRange;
+-
+     bool donePrePrint = mPrintEngine->PrePrintPage();
+-    bool donePrinting;
+ 
+     if (donePrePrint) {
+-      printf("--- donePrePrint!\n");
+-      // donePrinting will be true if it completed successfully or
+-      // if the printing was cancelled
+-      bool donePrinting = mPrintEngine->PrintPage(mPrintObj, inRange);
+-      if (donePrinting) {
+-        // now clean up print or print the next webshell
+-        if (mPrintEngine->DonePrintingPages(mPrintObj, NS_OK)) {
+-          initNewTimer = false;
+-        }
+-      }
++      NS_DispatchToMainThread(this);
+     }
+ 
+-    // Note that the Stop() destroys this after the print job finishes
+-    // (The PrintEngine stops holding a reference when DonePrintingPages
+-    // returns true.)
+-    Stop(); 
+-    if (initNewTimer) {
+-      ++mFiringCount;
+-      nsresult result = StartTimer(inRange);
+-      if (NS_FAILED(result)) {
+-        donePrinting = true;     // had a failure.. we are finished..
+-        mPrintEngine->SetIsPrinting(false);
+-      }
+-    }
+   }
+   return NS_OK;
+ }
+ 
+ void 
+ nsPagePrintTimer::Init(nsPrintEngine*          aPrintEngine,
+                        nsIDocumentViewerPrint* aDocViewerPrint,
+                        PRUint32                aDelay)
+diff --git a/layout/printing/nsPagePrintTimer.h b/layout/printing/nsPagePrintTimer.h
+--- a/layout/printing/nsPagePrintTimer.h
++++ b/layout/printing/nsPagePrintTimer.h
+@@ -37,39 +37,43 @@
+ #ifndef nsPagePrintTimer_h___
+ #define nsPagePrintTimer_h___
+ 
+ // Timer Includes
+ #include "nsITimer.h"
+ 
+ #include "nsIDocumentViewerPrint.h"
+ #include "nsPrintObject.h"
++#include "nsThreadUtils.h"
+ 
+ class nsPrintEngine;
+ 
+ //---------------------------------------------------
+ //-- Page Timer Class
+ //---------------------------------------------------
+-class nsPagePrintTimer : public nsITimerCallback
++class nsPagePrintTimer : public nsITimerCallback,
++                         public nsRunnable
+ {
+ public:
+ 
+   NS_DECL_ISUPPORTS
+ 
+   nsPagePrintTimer();
+   ~nsPagePrintTimer();
+ 
+   NS_DECL_NSITIMERCALLBACK
+ 
+   void Init(nsPrintEngine*          aPrintEngine,
+             nsIDocumentViewerPrint* aDocViewerPrint,
+             PRUint32                aDelay);
+ 
+   nsresult Start(nsPrintObject* aPO);
+ 
++  NS_IMETHOD Run();
++
+   void Stop();
+ 
+ private:
+   nsresult StartTimer(bool aUseDelay);
+ 
+   nsPrintEngine*             mPrintEngine;
+   nsCOMPtr<nsIDocumentViewerPrint> mDocViewerPrint;
+   nsCOMPtr<nsITimer>         mTimer;
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -2450,17 +2450,17 @@ nsPrintEngine::PrePrintPage()
+     return true;
+ 
+   // Ask mPageSeqFrame if the page is ready to be printed.
+   // If the page doesn't get printed at all, the |done| will be |true|.
+   // |aborted| is set to true iff |printState.aborted()| was called on one of
+   // the printCanvas.
+   bool done = false;
+   bool aborted = false;
+-  nsresult rv = mPageSeqFrame->PrePrintNextPage(&done, &aborted);
++  nsresult rv = mPageSeqFrame->PrePrintNextPage(mPagePrintTimer, &done, &aborted);
+   if (NS_FAILED(rv)) {
+     printf("nsPrintEngine::PrePrintPage() - ERROR!\n");
+     // ??? ::PrintPage doesn't set |mPrt->mIsAborted = true| if rv != NS_ERROR_ABORT,
+     // but I don't really understand why this should be the right thing to do?
+     // Shouldn't |mPrt->mIsAborted| set to true all the time if something
+     // wents wrong?
+     if (rv != NS_ERROR_ABORT) {
+       ShowPrintErrorDialog(rv);

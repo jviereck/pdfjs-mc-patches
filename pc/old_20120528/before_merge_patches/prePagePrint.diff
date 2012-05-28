@@ -1,0 +1,403 @@
+# HG changeset patch
+# Parent fb821e6570e3a10a49b923d086a66f196e8e0955
+
+Add PrePageRender function, that is called before the printing is performed on
+individual pages.
+TODO: Change the logic of HandlePrintCallback.
+
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
+@@ -209,6 +209,7 @@
+ 
+   nsCOMPtr<nsIPrintCallback> mPrintCallback;
+   nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
++  nsCOMPtr<nsCanvasPrintState> mPrintState;
+ public:
+   // Record whether this canvas should be write-only or not.
+   // We set this when script paints an image from a different origin.
+@@ -218,10 +219,11 @@
+ 
+   bool mIsPrintCanvas;
+   bool mIsPrintPreview;
++  
++  bool IsPrintCallbackDone();
+ 
+   bool HandlePrintCallback(nsIntSize &size);
+ 
+-  nsCOMPtr<nsCanvasPrintState> mPrintState;
+   void CallPrintCallback();
+ };
+ 
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -137,9 +137,9 @@
+ }
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+-  : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false), mWriteOnly(false),
+-    mIsPrintCanvas(false), mIsPrintPreview(false), mPrintState(nsnull)
+-{
++  : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false),
++    mPrintState(nsnull), mWriteOnly(false),
++    mIsPrintCanvas(false), mIsPrintPreview(false) {
+ }
+ 
+ nsHTMLCanvasElement::~nsHTMLCanvasElement()
+@@ -256,6 +256,16 @@
+   mPrintCallback->Render(obj.forget().get());  
+ }
+ 
++bool
++nsHTMLCanvasElement::IsPrintCallbackDone()
++{
++  if (mPrintState == nsnull) {
++    return true;
++  }
++
++  return mPrintState->mIsDone;
++}
++
+ nsresult
+ nsHTMLCanvasElement::CopyInnerTo(nsGenericElement* aDest) const
+ {
+diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
+--- a/layout/generic/nsSimplePageSequence.cpp
++++ b/layout/generic/nsSimplePageSequence.cpp
+@@ -116,6 +116,7 @@
+ nsSimplePageSequenceFrame::nsSimplePageSequenceFrame(nsStyleContext* aContext) :
+   nsContainerFrame(aContext),
+   mTotalPages(-1),
++  mCurrentCanvasListSetup(false),
+   mSelectionHeight(-1),
+   mYSelOffset(0)
+ {
+@@ -521,7 +522,7 @@
+   return rv;
+ }
+ 
+-void GetCanvasElementsInFrame(nsTArray<nsRefPtr<nsHTMLCanvasElement> >* aArr, nsIFrame* aFrame)
++void GetPrintCanvasElementsInFrame(nsTArray<nsRefPtr<nsHTMLCanvasElement> >* aArr, nsIFrame* aFrame)
+ {
+ 
+   for (nsIFrame::ChildListIterator childLists(aFrame);
+@@ -548,41 +549,21 @@
+       // The current child is not a nsHTMLCanvasFrame OR it is but there is
+       // no nsHTMLCanvasElement on it. Check if children of `child` might
+       // contain a nsHTMLCanvasElement.
+-      GetCanvasElementsInFrame(aArr, child);
++      GetPrintCanvasElementsInFrame(aArr, child);
+     }
+   }
+ }
+ 
+-NS_IMETHODIMP
+-nsSimplePageSequenceFrame::PrintNextPage()
++void
++nsSimplePageSequenceFrame::ComputePrintThisPage()
+ {
+-  // Print each specified page
+-  // pageNum keeps track of the current page and what pages are printing
+-  //
+-  // printedPageNum keeps track of the current page number to be printed
+-  // Note: When print al the pages or a page range the printed page shows the
+-  // actual page number, when printing selection it prints the page number starting
+-  // with the first page of the selection. For example if the user has a 
+-  // selection that starts on page 2 and ends on page 3, the page numbers when
+-  // print are 1 and then two (which is different than printing a page range, where
+-  // the page numbers would have been 2 and then 3)
+-
+-  if (mCurrentPageFrame == nsnull) {
+-    return NS_ERROR_FAILURE;
+-  }
++  // See whether we should print this page
++  mPrintThisPage = true;
+ 
+   bool printEvenPages, printOddPages;
+   mPageData->mPrintSettings->GetPrintOptions(nsIPrintSettings::kPrintEvenPages, &printEvenPages);
+   mPageData->mPrintSettings->GetPrintOptions(nsIPrintSettings::kPrintOddPages, &printOddPages);
+ 
+-  // Begin printing of the document
+-  nsDeviceContext *dc = PresContext()->DeviceContext();
+-
+-  nsresult rv = NS_OK;
+-
+-  // See whether we should print this page
+-  mPrintThisPage = true;
+-
+   // If printing a range of pages check whether the page number is in the
+   // range of pages to print
+   if (mDoingPageRange) {
+@@ -591,7 +572,8 @@
+     } else if (mPageNum > mToPageNum) {
+       mPageNum++;
+       mCurrentPageFrame = nsnull;
+-      return NS_OK;
++      mPrintThisPage = false;
++      return;
+     } else {
+       PRInt32 length = mPageRanges.Length();
+     
+@@ -624,8 +606,109 @@
+   if (nsIPrintSettings::kRangeSelection == mPrintRangeType) {
+     mPrintThisPage = true;
+   }
++}
++
++bool
++nsSimplePageSequenceFrame::PrePrintNextPage()
++{
++  if (mCurrentPageFrame == nsnull) {
++    return true;
++  }
++  
++  ComputePrintThisPage();
++  if (!mPrintThisPage) {
++    return true;
++  }
++
++  // If the canvasList is null, then generate it and start the render
++  // process for all the canvas.
++  if (!mCurrentCanvasListSetup) {
++    GetPrintCanvasElementsInFrame(&mCurrentCanvasList, mCurrentPageFrame);
++
++    printf("=== GotCanvasList: %d \n", mCurrentCanvasList.Length()); 
++
++    nsRefPtr<gfxASurface> renderingSurface;
++    if (mCurrentCanvasList.Length() != -1) {
++      // Begin printing of the document
++      nsDeviceContext *dc = PresContext()->DeviceContext();
++
++      nsRefPtr<nsRenderingContext> renderingContext;
++      dc->CreateRenderingContext(*getter_AddRefs(renderingContext));
++      
++      if (!renderingContext) { // Check for running-out-of-memory.
++        return true; 
++      }
++
++      renderingSurface =
++          renderingContext->ThebesContext()->CurrentSurface();
++    }
++
++    for (PRInt32 i = mCurrentCanvasList.Length() - 1; i >= 0 ; i--) {
++      nsHTMLCanvasElement *canvas = mCurrentCanvasList[i];
++      nsIntSize size = canvas->GetSize();
++
++      nsRefPtr<gfxASurface> printSurface = renderingSurface->
++         CreateSimilarSurface(
++           gfxASurface::CONTENT_COLOR_ALPHA,
++           size
++         );
++
++      nsICanvasRenderingContextInternal *ctx = canvas->GetContextAtIndex(0);
++
++      if (!ctx)
++        continue;
++
++        // Initialize the context with the new printSurface.
++      ctx->InitializeWithSurface(NULL, printSurface, size.width, size.height);
++
++      // This canvas is not intended for preview. 
++      canvas->mIsPrintPreview = false;
++
++      // Start the rendering process.
++      canvas->CallPrintCallback();
++      printf(">>> Context: setup!");
++    }
++  }
++
++  PRInt32 doneCounter = 0;
++  for (PRInt32 i = mCurrentCanvasList.Length() - 1; i >= 0 ; i--) {
++    nsHTMLCanvasElement *canvas = mCurrentCanvasList[i];
++
++    if (canvas->IsPrintCallbackDone()) {
++      doneCounter++;
++    }
++  }
++
++  // If all canvas have finished rendering, return true, otherwise false.
++  return doneCounter == mCurrentCanvasList.Length();
++}
++
++NS_IMETHODIMP
++nsSimplePageSequenceFrame::PrintNextPage()
++{
++// Print each specified page
++// pageNum keeps track of the current page and what pages are printing
++//
++// printedPageNum keeps track of the current page number to be printed
++// Note: When print al the pages or a page range the printed page shows the
++// actual page number, when printing selection it prints the page number starting
++// with the first page of the selection. For example if the user has a 
++// selection that starts on page 2 and ends on page 3, the page numbers when
++// print are 1 and then two (which is different than printing a page range, where
++// the page numbers would have been 2 and then 3)
++
++  if (mCurrentPageFrame == nsnull) {
++    return NS_ERROR_FAILURE;
++  }
++
++  nsresult rv = NS_OK;
++
++  ComputePrintThisPage();
+ 
+   if (mPrintThisPage) {
++    // Begin printing of the document
++    nsDeviceContext *dc = PresContext()->DeviceContext();
++
+     // XXX This is temporary fix for printing more than one page of a selection
+     // This does a poor man's "dump" pagination (see Bug 89353)
+     // It has laid out as one long page and now we are just moving or view up/down 
+@@ -674,44 +757,20 @@
+       nsRefPtr<gfxASurface> renderingSurface =
+           renderingContext->ThebesContext()->CurrentSurface();
+ 
+-      nsTArray<nsRefPtr<nsHTMLCanvasElement> > canvasList;
+-      GetCanvasElementsInFrame(&canvasList, mCurrentPageFrame);
+-      for (PRInt32 i = canvasList.Length() - 1; i >= 0 ; i--) {
+-        nsHTMLCanvasElement *canvas = canvasList[i];
+-        nsIntSize size = canvas->GetSize();
+-
+-        nsRefPtr<gfxASurface> printSurface = renderingSurface->
+-           CreateSimilarSurface(
+-             gfxASurface::CONTENT_COLOR_ALPHA,
+-             size
+-           );
+-
+-        nsICanvasRenderingContextInternal *ctx = canvas->GetContextAtIndex(0);
+-
+-        if (!ctx)
+-          continue;
+-
+-        // Initialize the context with the new printSurface.
+-        ctx->InitializeWithSurface(NULL, printSurface, size.width, size.height);
+-
+-        // Only specify here, that this canvas won't be printed to preview.
+-        // The actuall drawing is done once the nsHTMLCanvasFrame::BuildLayer
+-        // function calls the canvas->HandlePrintCallback();
+-        canvas->mIsPrintPreview = false;
+-      }
+-
+       nsLayoutUtils::PaintFrame(renderingContext, mCurrentPageFrame,
+                                 drawingRegion, NS_RGBA(0,0,0,0),
+                                 nsLayoutUtils::PAINT_SYNC_DECODE_IMAGES);
+ 
+       // Loop over the canvasList list again and clear out the no longer
+       // needed surface and context to save memeory.
+-      for (PRInt32 i = canvasList.Length() - 1; i >= 0 ; i--) {
+-        nsICanvasRenderingContextInternal *ctx = canvasList[i]->GetContextAtIndex(0);
++      for (PRInt32 i = mCurrentCanvasList.Length() - 1; i >= 0 ; i--) {
++        nsICanvasRenderingContextInternal *ctx = mCurrentCanvasList[i]->GetContextAtIndex(0);
+ 
+         if (ctx)
+           ctx->Reset();
+       }
++      mCurrentCanvasList.Clear();
++      mCurrentCanvasListSetup = false; 
+ 
+       if (mSelectionHeight >= 0 && selectionY < mSelectionHeight) {
+         selectionY += height;
+@@ -746,7 +805,7 @@
+   if (mCurrentPageFrame) {
+     mCurrentPageFrame = mCurrentPageFrame->GetNextSibling();
+   }
+-  
++
+   return rv;
+ }
+ 
+diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
+--- a/layout/generic/nsSimplePageSequence.h
++++ b/layout/generic/nsSimplePageSequence.h
+@@ -42,6 +42,7 @@
+ #include "nsIPrintSettings.h"
+ #include "nsIPrintOptions.h"
+ #include "nsIDateTimeFormat.h"
++#include "nsHTMLCanvasElement.h"
+ 
+ //-----------------------------------------------
+ // This class maintains all the data that 
+@@ -108,6 +109,8 @@
+                         nsIPrintSettings* aPrintSettings,
+                         PRUnichar*        aDocTitle,
+                         PRUnichar*        aDocURL);
++
++  bool PrePrintNextPage();
+   NS_IMETHOD PrintNextPage();
+   NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum);
+   NS_IMETHOD GetNumPages(PRInt32* aNumPages);
+@@ -166,6 +169,10 @@
+   PRInt32      mFromPageNum;
+   PRInt32      mToPageNum;
+   nsTArray<PRInt32> mPageRanges;
++  nsTArray<nsRefPtr<nsHTMLCanvasElement> > mCurrentCanvasList;
++
++  bool         mCurrentCanvasListSetup;
++  void         ComputePrintThisPage();
+ 
+   // Selection Printing Info
+   nscoord      mSelectionHeight;
+diff --git a/layout/printing/nsPagePrintTimer.cpp b/layout/printing/nsPagePrintTimer.cpp
+--- a/layout/printing/nsPagePrintTimer.cpp
++++ b/layout/printing/nsPagePrintTimer.cpp
+@@ -95,13 +95,18 @@
+     // Check to see if we are done
+     // inRange will be true if a page is actually printed
+     bool inRange;
+-    // donePrinting will be true if it completed successfully or
+-    // if the printing was cancelled
+-    bool donePrinting = mPrintEngine->PrintPage(mPrintObj, inRange);
+-    if (donePrinting) {
+-      // now clean up print or print the next webshell
+-      if (mPrintEngine->DonePrintingPages(mPrintObj, NS_OK)) {
+-        initNewTimer = false;
++
++    bool donePrePrint = mPrintEngine->PrePrintPage(mPrintObj);
++    
++    if (donePrePrint) { 
++      // donePrinting will be true if it completed successfully or
++      // if the printing was cancelled
++      bool donePrinting = mPrintEngine->PrintPage(mPrintObj, inRange);
++      if (donePrinting) {
++        // now clean up print or print the next webshell
++        if (mPrintEngine->DonePrintingPages(mPrintObj, NS_OK)) {
++          initNewTimer = false;
++        }
+       }
+     }
+ 
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -2432,6 +2432,30 @@
+ 
+ //-------------------------------------------------------
+ bool
++nsPrintEngien::PrePrintPage()
++{
++  NS_ASSERTION(mPageSeqFrame,  "mPageSeqFrame is null!");
++  NS_ASSERTION(mPrt,           "mPrt is null!");
++
++  // Although these should NEVER be NULL
++  // This is added insurance, to make sure we don't crash in optimized builds
++  if (!mPrt || !mPageSeqFrame) {
++    return true; // means we are done preparing the page.
++  }
++
++   
++  // Check setting to see if someone request it be cancelled
++  bool isCancelled = false;
++  mPrt->mPrintSettings->GetIsCancelled(&isCancelled);
++  if (isCancelled)
++    return true;
++
++  // Ask mPageSeqFrame if the page is ready to be printed.
++  // If the page doesn't get printed at all, the function will return true.
++  return mPageSeqFrame->PrePrintNextPage();
++}
++
++bool
+ nsPrintEngine::PrintPage(nsPrintObject*    aPO,
+                          bool&           aInRange)
+ {

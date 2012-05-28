@@ -1,0 +1,295 @@
+# HG changeset patch
+# Parent edfdb8e71cb71415af5518854299e0831419d0e7
+
+diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
+--- a/layout/base/nsDocumentViewer.cpp
++++ b/layout/base/nsDocumentViewer.cpp
+@@ -2358,18 +2358,16 @@ DocumentViewerImpl::DetachFromTopLevelWi
+   mAttachedToParent = false;
+ }
+ 
+ nsIView*
+ DocumentViewerImpl::FindContainerView()
+ {
+   nsIView* containerView = nsnull;
+ 
+-  printf("DocumentViewerImpl::FindContainerView() - ENTER\n");
+-
+   if (mContainer) {
+     nsCOMPtr<nsIDocShellTreeItem> docShellItem = do_QueryReferent(mContainer);
+     nsCOMPtr<nsPIDOMWindow> pwin(do_GetInterface(docShellItem));
+     if (pwin) {
+       nsCOMPtr<nsIContent> containerElement = do_QueryInterface(pwin->GetFrameElementInternal());
+       if (!containerElement) {
+         return nsnull;
+       }
+@@ -2386,17 +2384,16 @@ DocumentViewerImpl::FindContainerView()
+         nsCOMPtr<nsIDocument> parentDoc = containerElement->GetCurrentDoc();
+         if (parentDoc) {
+           parentPresShell = parentDoc->GetShell();
+         }
+       }
+       if (!parentPresShell) {
+         NS_WARNING("Subdocument container has no presshell");
+       } else {
+-        printf("=== DocumentViewerImpl::FindContainerView() - parentPresShell %p\n", parentPresShell.get());
+         nsIFrame* f = parentPresShell->GetRealPrimaryFrameFor(containerElement);
+         if (f) {
+           nsIFrame* subdocFrame = f->GetContentInsertionFrame();
+           // subdocFrame might not be a subdocument frame; the frame
+           // constructor can treat a <frame> as an inline in some XBL
+           // cases. Treat that as display:none, the document is not
+           // displayed.
+           if (subdocFrame->GetType() == nsGkAtoms::subDocumentFrame) {
+diff --git a/layout/generic/nsSubDocumentFrame.cpp b/layout/generic/nsSubDocumentFrame.cpp
+--- a/layout/generic/nsSubDocumentFrame.cpp
++++ b/layout/generic/nsSubDocumentFrame.cpp
+@@ -170,17 +170,16 @@ inline PRInt32 ConvertOverflow(PRUint8 a
+   }
+   NS_NOTREACHED("invalid overflow value passed to ConvertOverflow");
+   return nsIScrollable::Scrollbar_Auto;
+ }
+ 
+ void
+ nsSubDocumentFrame::ShowViewer()
+ {
+-  printf("nsSubDocumentFrame::ShowViewer() - Enter\n");
+   if (mCallingShow) {
+     return;
+   }
+ 
+   if (!PresContext()->IsDynamic()) {
+     // We let the printing code take care of loading the document; just
+     // create the inner view for it to use.
+     (void) EnsureInnerView();
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -707,40 +707,28 @@ nsPrintEngine::DoCommonPrint(bool       
+     bool notifyOnInit = false;
+     ShowPrintProgress(false, notifyOnInit);
+ 
+     // Very important! Turn Off scripting
+     TurnScriptingOn(false);
+ 
+     if (!notifyOnInit) {
+       InstallPrintPreviewListener();
+-      rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+-      NS_ENSURE_SUCCESS(rv, rv);
+-
+-      printf("=== nsPrintEngine::DoCommonPrint - after reflow: mLoadCounter=%d, mPrtPreview=%p\n", mLoadCounter, mPrtPreview);
+-
+-      if (mLoadCounter == 0) {
+-        AfterNetworkPrint();
+-      }
++      rv = InitPrintDocConstruction(false);
+     } else {
+       rv = NS_OK;
+     }
+   } else {
+     bool doNotify;
+     ShowPrintProgress(true, doNotify);
+     if (!doNotify) {
+       // Print listener setup...
+       mPrt->OnStartPrinting();
+ 
+-      rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+-      NS_ENSURE_SUCCESS(rv, rv);
+-
+-      if (mLoadCounter == 0) {
+-        AfterNetworkPrint();
+-      }
++      rv = InitPrintDocConstruction(false);
+     }
+   }
+ 
+   // We will enable scripting later after printing has finished.
+   scriptSuppressor.Disconnect();
+ 
+   return NS_OK;
+ }
+@@ -1854,16 +1842,17 @@ nsPrintEngine::SetupToPrintContent()
+ 
+ //-------------------------------------------------------
+ // Recursively reflow each sub-doc and then calc
+ // all the frame locations of the sub-docs
+ nsresult
+ nsPrintEngine::ReflowDocList(nsPrintObject* aPO, bool aSetPixelScale)
+ {
+   NS_ENSURE_ARG_POINTER(aPO);
++  printf("=== nsPrintEngine::ReflowDocList()\n");
+ 
+   // Check to see if the subdocument's element has been hidden by the parent document
+   if (aPO->mParent && aPO->mParent->mPresShell) {
+     nsIFrame* frame = aPO->mContent ? aPO->mContent->GetPrimaryFrame() : nsnull;
+     if (!frame || !frame->GetStyleVisibility()->IsVisible()) {
+       aPO->mDontPrint = true;
+       aPO->mInvisible = true;
+       return NS_OK;
+@@ -1880,30 +1869,53 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   PRInt32 cnt = aPO->mKids.Length();
+   for (PRInt32 i=0;i<cnt;i++) {
+     rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+   return NS_OK;
+ }
+ 
+-void
+-nsPrintEngine::AfterNetworkPrint()
++nsresult
++nsPrintEngine::InitPrintDocConstruction(bool aHandleError)
+ {
+-  printf("nsPrintEngine::AfterNetworkPrint()\n");
++  nsresult rv;
++  rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
++  NS_ENSURE_SUCCESS(rv, rv);
++
++  printf("=== nsPrintEngine::DoCommonPrint - after reflow: mLoadCounter=%d, mPrtPreview=%p\n", mLoadCounter, mPrtPreview);
++
++  if (mLoadCounter == 0) {
++    AfterNetworkPrint(aHandleError);
++  }
++  return rv;
++}
++
++nsresult
++nsPrintEngine::AfterNetworkPrint(bool aHandleError)
++{
++  printf("=== nsPrintEngine::AfterNetworkPrint()\n");
+   nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+ 
+   webProgress->RemoveProgressListener(
+     static_cast<nsIWebProgressListener*>(this));
+ 
++  nsresult rv;
+   if (mIsPrintPreview) {
+-    FinishPrintPreview();
++    rv = FinishPrintPreview();
+   } else {
+-    DocumentReadyForPrinting();
++    rv = DocumentReadyForPrinting();
+   }
++
++  /* cleaup on failure + notify user */
++  if (aHandleError && NS_FAILED(rv)) {
++    CleanupOnFailure(rv, !mIsPrintPreview);
++  }
++
++  return rv;
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
+ NS_IMETHODIMP
+ nsPrintEngine::OnStateChange(nsIWebProgress *aWebProgress,
+                                nsIRequest *aRequest, PRUint32 aStateFlags,
+@@ -1922,17 +1934,17 @@ nsPrintEngine::OnStateChange(nsIWebProgr
+     printf("nsPrintEngine - stopRequest %s\n", (aStatus & nsIWebProgressListener::STATE_IS_NETWORK ? "net" : "oth"));
+     mLoadCounter--;
+    
+     // If all resources are loaded, then do a small timeout and if there
+     // are still no new requests, then another reflow.
+     if (mLoadCounter == 0) {
+       printf(">!>!>!> Finished loading all resources\n");
+ 
+-      AfterNetworkPrint();
++      AfterNetworkPrint(true);
+     }
+   }
+   return NS_OK;
+ }
+ 
+ 
+ 
+ NS_IMETHODIMP
+@@ -3508,33 +3520,23 @@ nsPrintEngine::StartPagePrintTimer(nsPri
+ }
+ 
+ /*=============== nsIObserver Interface ======================*/
+ NS_IMETHODIMP 
+ nsPrintEngine::Observe(nsISupports *aSubject, const char *aTopic, const PRUnichar *aData)
+ {
+   nsresult rv = NS_ERROR_FAILURE;
+ 
+-  if (mIsDoingPrinting) {
+-    rv = DocumentReadyForPrinting();
+- 
+-    /* cleaup on failure + notify user */
+-    if (NS_FAILED(rv)) {
+-      CleanupOnFailure(rv, true);
+-    }
+-  } else {
+-    rv = FinishPrintPreview();
+-    if (NS_FAILED(rv)) {
+-      CleanupOnFailure(rv, false);
+-    }
+-    if (mPrtPreview) {
+-      mPrtPreview->OnEndPrinting();
+-    }
+-    rv = NS_OK;
+-  }
++  rv = InitPrintDocConstruction(true);
++  // ??? I think these lines were executed duplicate. OnEndPrinting() is called
++  // is executed always from within FinishPrintPreview(). 
++  // 
++  //  if (mPrtPreview) {
++  //    mPrtPreview->OnEndPrinting();
++  //  }
+ 
+   return rv;
+ 
+ }
+ 
+ //---------------------------------------------------------------
+ //-- PLEvent Notification
+ //---------------------------------------------------------------
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -275,20 +275,21 @@ protected:
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
+   PRInt32                 mLoadCounter;
+   bool                    mLoadedContent;
+   bool                    mIsPrintPreview; 
+ 
+-  void                    AfterNetworkPrint();
++  nsresult                AfterNetworkPrint(bool aHandleError);
+ 
+   nsresult                SetRootView(nsPrintObject* aPO, bool& doReturn, bool&documentIsTopLevel, nsSize& adjSize);
+   bool                    DoSetPixelScale();
+   void                    UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale);
+   nsresult                ReconstructAndReflow(bool doSetPixelScale);
+   nsresult                UpdateSelectionShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel);
++  nsresult                InitPrintDocConstruction(bool aHandleError);
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */
+diff --git a/view/src/nsView.cpp b/view/src/nsView.cpp
+--- a/view/src/nsView.cpp
++++ b/view/src/nsView.cpp
+@@ -520,18 +520,16 @@ void nsView::InvalidateHierarchy(nsViewM
+   for (nsView *child = mFirstChild; child; child = child->GetNextSibling())
+     child->InvalidateHierarchy(aViewManagerParent);
+ }
+ 
+ void nsView::InsertChild(nsView *aChild, nsView *aSibling)
+ {
+   NS_PRECONDITION(nsnull != aChild, "null ptr");
+ 
+-  printf("> nsView::InsertChild - this=%p aChild=%p aSibling=%p\n", this, aChild, aSibling);
+-
+   if (nsnull != aChild)
+   {
+     if (nsnull != aSibling)
+     {
+ #ifdef NS_DEBUG
+       NS_ASSERTION(aSibling->GetParent() == this, "tried to insert view with invalid sibling");
+ #endif
+       //insert after sibling

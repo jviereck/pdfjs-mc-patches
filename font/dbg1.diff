@@ -1,0 +1,172 @@
+# HG changeset patch
+# Parent 33fdd515301fceeb7e8db95782003f80ac040d96
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -692,28 +692,36 @@ nsPrintEngine::DoCommonPrint(bool       
+   nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+   printf("<<>> SETUP WebProgress this:%p wp:%p ds:%p\n", this, webProgress.get(), mPrt->mPrintObject->mDocShell.get());
+   webProgress->AddProgressListener(
+     static_cast<nsIWebProgressListener*>(this),
+     nsIWebProgress::NOTIFY_STATE_REQUEST);
+ 
+   mIsPrintPreview = aIsPrintPreview;
+ 
++  printf("=== nsPrintEngine::DoCommonPrint - mLoadedCounter=%d, mLoadedContent=%s\n",
++      mLoadCounter, mLoadedContent ? "true" : "false");
++
++  mLoadCounter = 0;
++  mLoadedContent = false;
++
+   if (aIsPrintPreview) {
+     bool notifyOnInit = false;
+     ShowPrintProgress(false, notifyOnInit);
+ 
+     // Very important! Turn Off scripting
+     TurnScriptingOn(false);
+ 
+     if (!notifyOnInit) {
+       InstallPrintPreviewListener();
+       rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+       NS_ENSURE_SUCCESS(rv, rv);
+ 
++      printf("=== nsPrintEngine::DoCommonPrint - after reflow: mLoadCounter=%d, mPrtPreview=%p\n", mLoadCounter, mPrtPreview);
++
+       if (mLoadCounter == 0) {
+         AfterNetworkPrint();
+       }
+     } else {
+       rv = NS_OK;
+     }
+   } else {
+     bool doNotify;
+@@ -834,22 +842,33 @@ nsPrintEngine::GetIsFramesetFrameSelecte
+ 
+ //----------------------------------------------------------------------------------
+ /* readonly attribute long printPreviewNumPages; */
+ NS_IMETHODIMP
+ nsPrintEngine::GetPrintPreviewNumPages(PRInt32 *aPrintPreviewNumPages)
+ {
+   NS_ENSURE_ARG_POINTER(aPrintPreviewNumPages);
+ 
++  *aPrintPreviewNumPages = 1;
++  return NS_OK;
++
+   nsIFrame* seqFrame  = nsnull;
+   *aPrintPreviewNumPages = 0;
+-  if (!mPrtPreview ||
+-      NS_FAILED(GetSeqFrameAndCountPagesInternal(mPrtPreview->mPrintObject, seqFrame, *aPrintPreviewNumPages))) {
++  nsPrintData* prt = nsnull;
++  if (mPrtPreview) {
++    prt = mPrtPreview;
++  } else {
++    prt = mPrt;
++  }
++  if ((!prt) ||
++      NS_FAILED(GetSeqFrameAndCountPagesInternal(prt->mPrintObject, seqFrame, *aPrintPreviewNumPages))) {
++    printf("=== nsPrintEngine::GetPrintPreviewNumPages - ERROR\n");
+     return NS_ERROR_FAILURE;
+   }
++  printf("=== nsPrintEngine::GetPrintPreviewNumPages\n");
+   return NS_OK;
+ }
+ 
+ //----------------------------------------------------------------------------------
+ // Enumerate all the documents for their titles
+ NS_IMETHODIMP
+ nsPrintEngine::EnumerateDocumentNames(PRUint32* aCount,
+                                       PRUnichar*** aResult)
+@@ -1479,17 +1498,17 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
+         break;
+     }
+   }
+ }
+ 
+ //---------------------------------------------------------------------
+ nsresult nsPrintEngine::DocumentReadyForPrinting()
+ {
+-  printf(">>> nsPrintEngine::DocumentReadyForPrinting()\n");
++  printf("=== nsPrintEngine::DocumentReadyForPrinting()\n");
+   if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
+     CheckForChildFrameSets(mPrt->mPrintObject);
+   }
+ 
+   //
+   // Send the document to the printer...
+   //
+   nsresult rv = SetupToPrintContent();
+@@ -1696,16 +1715,17 @@ nsPrintEngine::ReconstructAndReflow(bool
+ 
+ //-------------------------------------------------------
+ nsresult
+ nsPrintEngine::SetupToPrintContent()
+ {
+   printf("=== nsPrintEngine::SetupToPrintContent()\n");
+   nsresult rv;
+ 
++  /*
+   // If some new content got loaded since the intial reflow, then rebuild
+   // everything.
+   if (mLoadedContent) {
+     rv = ReconstructAndReflow(DoSetPixelScale());
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+ 
+   // Here is where we figure out if extra reflow for shrinking the content
+@@ -1744,16 +1764,17 @@ nsPrintEngine::SetupToPrintContent()
+       // Single document so use the Shrink as calculated for the PO
+       calcRatio = mPrt->mPrintObject->mShrinkRatio;
+     }
+     PR_PL(("**************************************************************************\n"));
+     PR_PL(("STF Ratio is: %8.5f Effective Ratio: %8.5f Diff: %8.5f\n", mPrt->mShrinkRatio, calcRatio,  mPrt->mShrinkRatio-calcRatio));
+     PR_PL(("**************************************************************************\n"));
+ #endif
+   }
++  */
+ 
+   DUMP_DOC_LIST(("\nAfter Reflow------------------------------------------"));
+   PR_PL(("\n"));
+   PR_PL(("-------------------------------------------------------\n"));
+   PR_PL(("\n"));
+ 
+   CalcNumPrintablePages(mPrt->mNumPrintablePages);
+ 
+@@ -2112,17 +2133,17 @@ nsPrintEngine::SetRootView(
+ 
+   return NS_OK;
+ }
+ 
+ // Reflow a nsPrintObject
+ nsresult
+ nsPrintEngine::ReflowPrintObject(nsPrintObject * aPO)
+ {
+-  printf(">>>> nsPrintEngine::ReflowPrintObject - ENTER\n");
++  printf("=== nsPrintEngine::ReflowPrintObject - ENTER\n");
+   NS_ASSERTION(aPO, "Pointer is null!");
+   if (!aPO) return NS_ERROR_FAILURE;
+ 
+   if (!aPO->IsPrintable())
+     return NS_OK;
+   
+   NS_ASSERTION(!aPO->mPresContext, "Recreating prescontext");
+ 
+@@ -3409,17 +3430,17 @@ nsPrintEngine::CloseProgressDialog(nsIWe
+     aWebProgressListener->OnStateChange(nsnull, nsnull, nsIWebProgressListener::STATE_STOP|nsIWebProgressListener::STATE_IS_DOCUMENT, nsnull);
+   }
+ }
+ 
+ //-----------------------------------------------------------------
+ nsresult
+ nsPrintEngine::FinishPrintPreview()
+ {
+-  printf(">>> nsPrintEngine::FinishPrintPreview()\n");
++  printf("=== nsPrintEngine::FinishPrintPreview()\n");
+   nsresult rv = NS_OK;
+ 
+ #ifdef NS_PRINT_PREVIEW
+ 
+   if (!mPrt) {
+     /* we're already finished with print preview */
+     return rv;
+   }

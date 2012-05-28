@@ -1,0 +1,99 @@
+# HG changeset patch
+# Parent d6ea834f5daf5b682b25a54b107303ec99f85202
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -1447,20 +1447,16 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
+         break;
+     }
+   }
+ }
+ 
+ //---------------------------------------------------------------------
+ nsresult nsPrintEngine::DocumentReadyForPrinting()
+ {
+-  if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
+-    CheckForChildFrameSets(mPrt->mPrintObject);
+-  }
+-
+   //
+   // Send the document to the printer...
+   //
+   nsresult rv = SetupToPrintContent();
+   if (NS_FAILED(rv)) {
+     // The print job was canceled or there was a problem
+     // So remove all other documents from the print list
+     DonePrintingPages(nsnull, rv);
+@@ -1600,22 +1596,16 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
+ //-----------------------------------------------------------------
+ //-- Section: Reflow Methods
+ //-----------------------------------------------------------------
+ 
+ //-------------------------------------------------------
+ nsresult
+ nsPrintEngine::SetupToPrintContent()
+ {
+-  // In this step we figure out which documents should be printed
+-  // i.e. if we are printing the selection then only enable that nsPrintObject
+-  // for printing
+-  if (NS_FAILED(EnablePOsForPrinting())) {
+-    return NS_ERROR_FAILURE;
+-  }
+   DUMP_DOC_LIST("\nAfter Enable------------------------------------------");
+ 
+   // This is an Optimization
+   // If we are in PP then we already know all the shrinkage information
+   // so just transfer it to the PrintData and we will skip the extra shrinkage reflow
+   //
+   // doSetPixelScale tells Reflow whether to set the shrinkage value into the DC
+   // The first time we do not want to do this, the second time through we do
+@@ -3196,16 +3186,29 @@ nsPrintEngine::FinishPrintPreview()
+ 
+ #ifdef NS_PRINT_PREVIEW
+ 
+   if (!mPrt) {
+     /* we're already finished with print preview */
+     return rv;
+   }
+ 
++  // In this step we figure out which documents should be printed
++  // i.e. if we are printing the selection then only enable that nsPrintObject
++  // for printing
++  if (mPrt->mPrintFrameType == nsIPrintSettings::kEachFrameSep) {
++    CheckForChildFrameSets(mPrt->mPrintObject);
++  }
++
++  if (NS_FAILED(EnablePOsForPrinting())) {
++    return NS_ERROR_FAILURE;
++  }
++
++  InstallPrintPreviewListener();
++ 
+   rv = DocumentReadyForPrinting();
+ 
+   SetIsCreatingPrintPreview(false);
+ 
+   /* cleaup on failure + notify user */
+   if (NS_FAILED(rv)) {
+     /* cleanup done, let's fire-up an error dialog to notify the user
+      * what went wrong...
+@@ -3220,18 +3223,16 @@ nsPrintEngine::FinishPrintPreview()
+   // before it is to be created
+ 
+ 
+   if (mIsDoingPrintPreview && mOldPrtPreview) {
+     delete mOldPrtPreview;
+     mOldPrtPreview = nsnull;
+   }
+ 
+-  InstallPrintPreviewListener();
+-
+   mPrt->OnEndPrinting();
+ 
+   // PrintPreview was built using the mPrt (code reuse)
+   // then we assign it over
+   mPrtPreview = mPrt;
+   mPrt        = nsnull;
+ 
+ #endif // NS_PRINT_PREVIEW

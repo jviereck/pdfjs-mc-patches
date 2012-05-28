@@ -1,0 +1,100 @@
+diff --git a/content/base/src/nsDataDocumentContentPolicy.cpp b/content/base/src/nsDataDocumentContentPolicy.cpp
+--- a/content/base/src/nsDataDocumentContentPolicy.cpp
++++ b/content/base/src/nsDataDocumentContentPolicy.cpp
+@@ -54,18 +54,19 @@ nsDataDocumentContentPolicy::ShouldLoad(
+     }
+   }
+ 
+   // DTDs are always OK to load
+   if (!doc || aContentType == nsIContentPolicy::TYPE_DTD) {
+     return NS_OK;
+   }
+ 
+-  // Nothing else is OK to load for data documents
+-  if (doc->IsLoadedAsData()) {
++  // If this is not a static document, 
++  // nothing else is OK to load for data documents
++  if (!doc->IsStaticDocument() && doc->IsLoadedAsData())  {
+     *aDecision = nsIContentPolicy::REJECT_TYPE;
+     return NS_OK;
+   }
+ 
+   if (doc->IsBeingUsedAsImage()) {
+     // We only allow SVG images to load content from URIs that are local and
+     // also satisfy one of the following conditions:
+     //  - URI inherits security context, e.g. data URIs
+diff --git a/content/base/src/nsDocument.cpp b/content/base/src/nsDocument.cpp
+--- a/content/base/src/nsDocument.cpp
++++ b/content/base/src/nsDocument.cpp
+@@ -166,16 +166,18 @@
+ #include "nsXULAppAPI.h"
+ #include "nsDOMTouchEvent.h"
+ 
+ #include "mozilla/Preferences.h"
+ 
+ #include "imgILoader.h"
+ #include "nsWrapperCacheInlines.h"
+ 
++#include "nsIDocumentLoader.h"
++
+ using namespace mozilla;
+ using namespace mozilla::dom;
+ 
+ typedef nsTArray<Link*> LinkArray;
+ 
+ // Reference to the document which requested DOM full-screen mode.
+ nsWeakPtr nsDocument::sFullScreenDoc = nsnull;
+ 
+@@ -7536,18 +7538,29 @@ nsDocument::CloneDocHelper(nsDocument* c
+ 
+   // Set URI/principal
+   clone->nsDocument::SetDocumentURI(nsIDocument::GetDocumentURI());
+   // Must set the principal first, since SetBaseURI checks it.
+   clone->SetPrincipal(NodePrincipal());
+   clone->mDocumentBaseURI = mDocumentBaseURI;
+ 
+   if (mCreatingStaticClone) {
++    printf("nsDocument::CloneDocHelper clone:%p\n", clone);
++
++    nsCOMPtr<nsILoadGroup> loadGroup;
++    
++    nsCOMPtr<nsIDocShell> docShell = do_QueryReferent(mDocumentContainer);
++    NS_ASSERTION(docShell, "There should be a docShell");
++
++    nsCOMPtr<nsIDocumentLoader> docLoader = do_QueryReferent(mDocumentContainer);
++    NS_ASSERTION(docLoader, "There should be a docLoader");
++
++    docLoader->GetLoadGroup(getter_AddRefs(loadGroup));
+     nsCOMPtr<nsIChannel> channel = GetChannel();
+-    nsCOMPtr<nsILoadGroup> loadGroup = GetDocumentLoadGroup();
++
+     if (channel && loadGroup) {
+       clone->Reset(channel, loadGroup);
+     } else {
+       nsIURI* uri = static_cast<const nsIDocument*>(this)->GetDocumentURI();
+       if (uri) {
+         clone->ResetToURI(uri, loadGroup, NodePrincipal());
+       }
+     }
+diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
+--- a/layout/base/nsDocumentViewer.cpp
++++ b/layout/base/nsDocumentViewer.cpp
+@@ -428,17 +428,17 @@ protected:
+   unsigned                         mPrintPreviewZoomed : 1;
+ 
+   // These data members support delayed printing when the document is loading
+   unsigned                         mPrintIsPending : 1;
+   unsigned                         mPrintDocIsFullyLoaded : 1;
+   nsCOMPtr<nsIPrintSettings>       mCachedPrintSettings;
+   nsCOMPtr<nsIWebProgressListener> mCachedPrintWebProgressListner;
+ 
+-  nsCOMPtr<nsPrintEngine>          mPrintEngine;
++  nsRefPtr<nsPrintEngine>          mPrintEngine;
+   float                            mOriginalPrintPreviewScale;
+   float                            mPrintPreviewZoom;
+ #endif // NS_PRINT_PREVIEW
+ 
+ #ifdef NS_DEBUG
+   FILE* mDebugFile;
+ #endif // NS_DEBUG
+ #endif // NS_PRINTING

@@ -1,5 +1,5 @@
-# part1.diff
-# part2.diff
+part1.diff
+part2.diff
 
 font/wip01_1.diff
 font/wip01_2.diff
@@ -9,8 +9,6 @@ font/db-view-tree.diff
 font/backup.diff
 font/backup01.diff
 font/backup02.diff
-font/dbg1.diff
-font/dbg2.diff
 font/backup03.diff
 font/class-runnable.diff
 font/runnable.diff

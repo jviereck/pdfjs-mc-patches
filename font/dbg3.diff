@@ -1,0 +1,192 @@
+# HG changeset patch
+# Parent dc6edcf851d01e16a094a4319c5259ff6fc77e67
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -13,16 +13,19 @@
+ #include "nsIScriptGlobalObject.h"
+ #include "nsPIDOMWindow.h"
+ #include "nsIDocShell.h"
+ #include "nsIFrame.h"
+ #include "nsIURI.h"
+ #include "nsITextToSubURI.h"
+ #include "nsContentErrors.h"
+ 
++#include "nsView.h"
++#include "nsAsyncDOMEvent.h"
++
+ // Print Options
+ #include "nsIPrintSettings.h"
+ #include "nsIPrintSettingsService.h"
+ #include "nsIPrintOptions.h"
+ #include "nsIPrintSession.h"
+ #include "nsGfxCIID.h"
+ #include "nsIServiceManager.h"
+ #include "nsGkAtoms.h"
+@@ -120,17 +123,16 @@ static const char kPrintingPromptService
+ #include "nsIDocumentViewerPrint.h"
+ 
+ #include "nsFocusManager.h"
+ #include "nsRange.h"
+ #include "nsCDefaultURIFixup.h"
+ #include "nsIURIFixup.h"
+ #include "mozilla/dom/Element.h"
+ 
+-#include "nsView.h"
+ 
+ using namespace mozilla;
+ using namespace mozilla::dom;
+ 
+ //-----------------------------------------------------
+ // PR LOGGING
+ #ifdef MOZ_LOGGING
+ #define FORCE_PR_LOG /* Allow logging in the release build */
+@@ -1703,21 +1705,23 @@ nsPrintEngine::ReconstructAndReflow(bool
+ 
+ //-------------------------------------------------------
+ nsresult
+ nsPrintEngine::SetupToPrintContent()
+ {
+   printf("=== nsPrintEngine::SetupToPrintContent()\n");
+   nsresult rv;
+ 
++  bool didReconstruction = false;
+   /*
+   // If some new content got loaded since the intial reflow, then rebuild
+   // everything.
+   if (mLoadedContent) {
+     rv = ReconstructAndReflow(DoSetPixelScale());
++    didReconstruction = true;
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+ 
+   // Here is where we figure out if extra reflow for shrinking the content
+   // is required.
+   // But skip this step if we are in PrintPreview
+   bool ppIsShrinkToFit = mPrtPreview && mPrtPreview->mShrinkToFit;
+   if (mPrt->mShrinkToFit && !ppIsShrinkToFit) {
+@@ -1731,16 +1735,17 @@ nsPrintEngine::SetupToPrintContent()
+       }
+     } else {
+       // Single document so use the Shrink as calculated for the PO
+       mPrt->mShrinkRatio = mPrt->mPrintObject->mShrinkRatio;
+     }
+ 
+     if (mPrt->mShrinkRatio < 0.998f) {
+       rv = ReconstructAndReflow(true);
++      didReconstruction = true;
+       NS_ENSURE_SUCCESS(rv, rv);
+     }
+ 
+ #ifdef PR_LOGGING
+     float calcRatio = 0.0f;
+     if (mPrt->mPrintDocList.Length() > 1 && mPrt->mPrintObject->mFrameType == eFrameSet) {
+       nsPrintObject* smallestPO = FindSmallestSTF();
+       NS_ASSERTION(smallestPO, "There must always be an XMost PO!");
+@@ -1753,17 +1758,23 @@ nsPrintEngine::SetupToPrintContent()
+       calcRatio = mPrt->mPrintObject->mShrinkRatio;
+     }
+     PR_PL(("**************************************************************************\n"));
+     PR_PL(("STF Ratio is: %8.5f Effective Ratio: %8.5f Diff: %8.5f\n", mPrt->mShrinkRatio, calcRatio,  mPrt->mShrinkRatio-calcRatio));
+     PR_PL(("**************************************************************************\n"));
+ #endif
+   }
+   */
+-
++  // If the frames got reconstructed and reflowed the number of pages might
++  // has changed.
++  didReconstruction = true;
++  if (didReconstruction) {
++    DispatchPageCountChanged();
++  }
++  
+   DUMP_DOC_LIST(("\nAfter Reflow------------------------------------------"));
+   PR_PL(("\n"));
+   PR_PL(("-------------------------------------------------------\n"));
+   PR_PL(("\n"));
+ 
+   CalcNumPrintablePages(mPrt->mNumPrintablePages);
+ 
+   PR_PL(("--- Printing %d pages\n", mPrt->mNumPrintablePages));
+@@ -1869,23 +1880,39 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   PRInt32 cnt = aPO->mKids.Length();
+   for (PRInt32 i=0;i<cnt;i++) {
+     rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+   return NS_OK;
+ }
+ 
++void
++nsPrintEngine::DispatchPageCountChanged()
++{
++  // Dispatch the event only while in PrintPreview. When printing, there is no
++  // listener bound to this event and therefore no need to dispatch it.
++  if (mIsPrintPreview) {
++    printf("=== nsPrintEngine::DispatchPageCountChanged() - dispatched!\n");
++    nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
++    (new nsAsyncDOMEvent(
++       cv->GetDocument(), NS_LITERAL_STRING("printPreviewPageCountChanged"), true, true)
++    )->RunDOMEventWhenSafe();
++  }
++}
++
+ nsresult
+ nsPrintEngine::InitPrintDocConstruction(bool aHandleError)
+ {
+   nsresult rv;
+   rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
++  DispatchPageCountChanged();
++
+   printf("=== nsPrintEngine::DoCommonPrint - after reflow: mLoadCounter=%d, mPrtPreview=%p\n", mLoadCounter, mPrtPreview);
+ 
+   if (mLoadCounter == 0) {
+     AfterNetworkPrint(aHandleError);
+   }
+   return rv;
+ }
+ 
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -283,13 +283,14 @@ protected:
+   nsresult                AfterNetworkPrint(bool aHandleError);
+ 
+   nsresult                SetRootView(nsPrintObject* aPO, bool& doReturn, bool&documentIsTopLevel, nsSize& adjSize);
+   bool                    DoSetPixelScale();
+   void                    UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale);
+   nsresult                ReconstructAndReflow(bool doSetPixelScale);
+   nsresult                UpdateSelectionShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel);
+   nsresult                InitPrintDocConstruction(bool aHandleError);
++  void                    DispatchPageCountChanged();
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */
+diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
+--- a/toolkit/components/printing/content/printPreviewBindings.xml
++++ b/toolkit/components/printing/content/printPreviewBindings.xml
+@@ -128,16 +128,19 @@
+       <constructor>
+       <![CDATA[
+         var print = PrintUtils.getPrintPreview();
+         this.mTotalPages.value = print.printPreviewNumPages;
+         this.mPageTextBox.max = print.printPreviewNumPages;
+ 
+         this.updateToolbar();
+ 
++        document.addEventListener(
++            "printPreviewPageCountChanged", this.updateToolbar.bind(this), false);
++
+         // Hide the ``Print...'' button when the underlying gfx code does not
+         // support multiple devicecontext to be used concurrently
+         // (e.g. printing and printpreview at the same time; required as 
+         // legacy support for unices.'s PostScript module
+         // XXX the scaling widgets, and the orientation widgets on unices.
+         var canPrint = true;
+         try
+         {

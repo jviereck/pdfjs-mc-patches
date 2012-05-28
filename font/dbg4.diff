@@ -1,0 +1,67 @@
+# HG changeset patch
+# Parent 00fad850e160ec1e39f88fc4532f542411027fdf
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -832,19 +832,16 @@ nsPrintEngine::GetIsFramesetFrameSelecte
+ 
+ //----------------------------------------------------------------------------------
+ /* readonly attribute long printPreviewNumPages; */
+ NS_IMETHODIMP
+ nsPrintEngine::GetPrintPreviewNumPages(PRInt32 *aPrintPreviewNumPages)
+ {
+   NS_ENSURE_ARG_POINTER(aPrintPreviewNumPages);
+ 
+-  *aPrintPreviewNumPages = 1;
+-  return NS_OK;
+-
+   nsIFrame* seqFrame  = nsnull;
+   *aPrintPreviewNumPages = 0;
+   nsPrintData* prt = nsnull;
+   if (mPrtPreview) {
+     prt = mPrtPreview;
+   } else {
+     prt = mPrt;
+   }
+@@ -1706,17 +1703,17 @@ nsPrintEngine::ReconstructAndReflow(bool
+ //-------------------------------------------------------
+ nsresult
+ nsPrintEngine::SetupToPrintContent()
+ {
+   printf("=== nsPrintEngine::SetupToPrintContent()\n");
+   nsresult rv;
+ 
+   bool didReconstruction = false;
+-  /*
++  
+   // If some new content got loaded since the intial reflow, then rebuild
+   // everything.
+   if (mLoadedContent) {
+     rv = ReconstructAndReflow(DoSetPixelScale());
+     didReconstruction = true;
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+ 
+@@ -1757,20 +1754,19 @@ nsPrintEngine::SetupToPrintContent()
+       // Single document so use the Shrink as calculated for the PO
+       calcRatio = mPrt->mPrintObject->mShrinkRatio;
+     }
+     PR_PL(("**************************************************************************\n"));
+     PR_PL(("STF Ratio is: %8.5f Effective Ratio: %8.5f Diff: %8.5f\n", mPrt->mShrinkRatio, calcRatio,  mPrt->mShrinkRatio-calcRatio));
+     PR_PL(("**************************************************************************\n"));
+ #endif
+   }
+-  */
++  
+   // If the frames got reconstructed and reflowed the number of pages might
+   // has changed.
+-  didReconstruction = true;
+   if (didReconstruction) {
+     DispatchPageCountChanged();
+   }
+   
+   DUMP_DOC_LIST(("\nAfter Reflow------------------------------------------"));
+   PR_PL(("\n"));
+   PR_PL(("-------------------------------------------------------\n"));
+   PR_PL(("\n"));

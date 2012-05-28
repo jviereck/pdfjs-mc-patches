@@ -1,21 +1,4 @@
-# --- WIP 2
-
-pc/base.diff
-pc/error-propagation.diff
-pc/fixes.diff
-
-# --- WIP 2 - first attempt
-
-# pc/runnable.diff
-
-# --- WIP 2 + second attempt async
-
-pc/timer.diff
-pc/print-state-reset.diff
-pc/try.diff
- 
-#pc/fix-preview-rerender.diff
-#pc/fix-pdf-raster.diff
- 
-# Unit test files
-#pc/unit/unit01.diff
+pc/wip2.diff
+pc/wip2_callback.diff
+pc/wip2_fix_thebes.diff
+pc/wip2_invalidate.diff

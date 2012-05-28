@@ -76,48 +76,6 @@ diff --git a/content/base/src/nsDocument.cpp b/content/base/src/nsDocument.cpp
          clone->ResetToURI(uri, loadGroup, NodePrincipal());
        }
      }
-diff --git a/gfx/thebes/gfxUserFontSet.cpp b/gfx/thebes/gfxUserFontSet.cpp
---- a/gfx/thebes/gfxUserFontSet.cpp
-+++ b/gfx/thebes/gfxUserFontSet.cpp
-@@ -66,16 +66,17 @@ gfxFont*
- gfxProxyFontEntry::CreateFontInstance(const gfxFontStyle *aFontStyle, bool aNeedsBold)
- {
-     // cannot create an actual font for a proxy entry
-     return nsnull;
- }
- 
- gfxUserFontSet::gfxUserFontSet()
- {
-+    printf("=== Create new gfxUserFontSet()\n");
-     mFontFamilies.Init(5);
-     IncrementGeneration();
- }
- 
- gfxUserFontSet::~gfxUserFontSet()
- {
- }
- 
-@@ -84,16 +85,20 @@ gfxUserFontSet::AddFontFace(const nsAStr
-                             const nsTArray<gfxFontFaceSrc>& aFontFaceSrcList,
-                             PRUint32 aWeight,
-                             PRUint32 aStretch,
-                             PRUint32 aItalicStyle,
-                             const nsTArray<gfxFontFeature>& aFeatureSettings,
-                             const nsString& aLanguageOverride,
-                             gfxSparseBitSet *aUnicodeRanges)
- {
-+    printf("gfxUserFontSet::AddFontFace %s %d\n", 
-+      NS_LossyConvertUTF16toASCII(aFamilyName).get()
-+      , this
-+    );
-     gfxProxyFontEntry *proxyEntry = nsnull;
- 
-     nsAutoString key(aFamilyName);
-     ToLowerCase(key);
- 
-     bool found;
- 
-     if (aWeight == 0)
 diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
 --- a/layout/base/nsDocumentViewer.cpp
 +++ b/layout/base/nsDocumentViewer.cpp
@@ -140,34 +98,6 @@ diff --git a/layout/base/nsDocumentViewer.cpp b/layout/base/nsDocumentViewer.cpp
    FILE* mDebugFile;
  #endif // NS_DEBUG
  #endif // NS_PRINTING
-diff --git a/layout/base/nsPresShell.cpp b/layout/base/nsPresShell.cpp
---- a/layout/base/nsPresShell.cpp
-+++ b/layout/base/nsPresShell.cpp
-@@ -4058,22 +4058,24 @@ PresShell::ReconstructFrames(void)
-   }
- 
-   nsCOMPtr<nsIPresShell> kungFuDeathGrip(this);
- 
-   // Have to make sure that the content notifications are flushed before we
-   // start messing with the frame model; otherwise we can get content doubling.
-   mDocument->FlushPendingNotifications(Flush_ContentAndNotify);
- 
-+
-   nsAutoCauseReflowNotifier crNotifier(this);
-   mFrameConstructor->BeginUpdate();
-   nsresult rv = mFrameConstructor->ReconstructDocElementHierarchy();
-   VERIFY_STYLE_TREE;
-   mFrameConstructor->EndUpdate();
- 
-+
-   return rv;
- }
- 
- void
- nsIPresShell::ReconstructStyleDataInternal()
- {
-   mStylesHaveChanged = false;
- 
 diff --git a/layout/printing/Makefile.in b/layout/printing/Makefile.in
 --- a/layout/printing/Makefile.in
 +++ b/layout/printing/Makefile.in
@@ -207,25 +137,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  #include "nsGfxCIID.h"
  #include "nsIServiceManager.h"
  #include "nsGkAtoms.h"
-@@ -120,16 +123,17 @@ static const char kPrintingPromptService
- #include "nsIDocumentViewerPrint.h"
- 
- #include "nsFocusManager.h"
- #include "nsRange.h"
- #include "nsCDefaultURIFixup.h"
- #include "nsIURIFixup.h"
- #include "mozilla/dom/Element.h"
- 
-+
- using namespace mozilla;
- using namespace mozilla::dom;
- 
- //-----------------------------------------------------
- // PR LOGGING
- #ifdef MOZ_LOGGING
- #define FORCE_PR_LOG /* Allow logging in the release build */
- #endif
-@@ -207,33 +211,35 @@ public:
+@@ -207,33 +210,35 @@ public:
  protected:
    nsRefPtr<nsPrintEngine> mPrintEngine;
    bool                    mSuppressed;
@@ -263,7 +175,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  {
    Destroy(); // for insurance
  }
-@@ -423,16 +429,17 @@ nsPrintEngine::CommonPrint(bool         
+@@ -423,16 +428,17 @@ nsPrintEngine::CommonPrint(bool         
  
  nsresult
  nsPrintEngine::DoCommonPrint(bool                    aIsPrintPreview,
@@ -281,7 +193,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      mProgressDialogIsShown = pps != nsnull;
  
      if (mIsDoingPrintPreview) {
-@@ -670,37 +677,60 @@ nsPrintEngine::DoCommonPrint(bool       
+@@ -670,37 +676,60 @@ nsPrintEngine::DoCommonPrint(bool       
            mPrt->mPrintSettings->SetPrintFrameType(mPrt->mPrintFrameType);
          }
        }
@@ -346,7 +258,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  
    return NS_OK;
  }
-@@ -804,20 +834,28 @@ nsPrintEngine::GetIsFramesetFrameSelecte
+@@ -804,20 +833,28 @@ nsPrintEngine::GetIsFramesetFrameSelecte
  /* readonly attribute long printPreviewNumPages; */
  NS_IMETHODIMP
  nsPrintEngine::GetPrintPreviewNumPages(PRInt32 *aPrintPreviewNumPages)
@@ -377,7 +289,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  NS_IMETHODIMP
  nsPrintEngine::EnumerateDocumentNames(PRUint32* aCount,
                                        PRUnichar*** aResult)
-@@ -1447,16 +1485,17 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
+@@ -1447,16 +1484,17 @@ nsPrintEngine::GetDisplayTitleAndURL(nsP
          break;
      }
    }
@@ -395,7 +307,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    // Send the document to the printer...
    //
    nsresult rv = SetupToPrintContent();
-@@ -1596,111 +1635,142 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
+@@ -1596,111 +1634,139 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
    dialog->Alert(title.get(), msg.get());
    PR_PL(("ShowPrintErrorDialog(): alert displayed successfully.\n"));
  }
@@ -404,8 +316,6 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  //-- Section: Reflow Methods
  //-----------------------------------------------------------------
  
-+void UpdateSelectionShrintPrintObject(nsPrintObject* aPO, bool aDoReset);
-+
 +nsresult
 +nsPrintEngine::ReconstructAndReflow(bool doSetPixelScale)
 +{
@@ -418,7 +328,6 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +    gDumpLOFileNameCnt = 0;
 +  }
 +#endif
-+   
 +
 +  for (PRUint32 i=0;i<mPrt->mPrintDocList.Length();i++) {
 +    nsPrintObject* po = mPrt->mPrintDocList.ElementAt(i);
@@ -458,7 +367,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +
 +    po->mPresShell->FlushPendingNotifications(Flush_Layout);
 +
-+    nsresult rv = UpdateSelectionShrinkPrintObject(po, documentIsTopLevel);
++    nsresult rv = UpdateSelectionAndShrinkPrintObject(po, documentIsTopLevel);
 +    NS_ENSURE_SUCCESS(rv, rv);
 +  }
 +  return NS_OK;
@@ -608,7 +517,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    CalcNumPrintablePages(mPrt->mNumPrintablePages);
  
    PR_PL(("--- Printing %d pages\n", mPrt->mNumPrintablePages));
-@@ -1779,78 +1849,275 @@ nsPrintEngine::SetupToPrintContent()
+@@ -1779,78 +1845,275 @@ nsPrintEngine::SetupToPrintContent()
  
  //-------------------------------------------------------
  // Recursively reflow each sub-doc and then calc
@@ -795,7 +704,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +}
 +
 +nsresult
-+nsPrintEngine::UpdateSelectionShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel)
++nsPrintEngine::UpdateSelectionAndShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel)
 +{
 +  nsCOMPtr<nsIPresShell> displayShell;
 +  aPO->mDocShell->GetPresShell(getter_AddRefs(displayShell));
@@ -905,7 +814,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      // subdocuments.
      adjSize = frame->GetContentRect().Size();
      documentIsTopLevel = false;
-@@ -1874,16 +2141,50 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1874,16 +2137,50 @@ nsPrintEngine::ReflowPrintObject(nsPrint
      if (mIsCreatingPrintPreview) {
        nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
        if (cv) {
@@ -956,7 +865,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
                                nsPresContext::eContext_Print);
    NS_ENSURE_TRUE(aPO->mPresContext, NS_ERROR_OUT_OF_MEMORY);
    aPO->mPresContext->SetPrintSettings(mPrt->mPrintSettings);
-@@ -1915,34 +2216,36 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1915,34 +2212,36 @@ nsPrintEngine::ReflowPrintObject(nsPrint
      delete styleSet;
      return rv;
    }
@@ -1005,7 +914,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    aPO->mPresContext->SetIsRootPaginatedDocument(documentIsTopLevel);
    aPO->mPresContext->SetPageScale(aPO->mZoomRatio);
    // Calculate scale factor from printer to screen
-@@ -1953,52 +2256,26 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1953,52 +2252,26 @@ nsPrintEngine::ReflowPrintObject(nsPrint
    if (mIsCreatingPrintPreview && documentIsTopLevel) {
      mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
                                                   aPO->mPresContext,
@@ -1052,7 +961,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 -    NS_ENSURE_STATE(pageSequence);
 -    pageSequence->GetSTFPercent(aPO->mShrinkRatio);
 -  }
-+  rv = UpdateSelectionShrinkPrintObject(aPO, documentIsTopLevel);
++  rv = UpdateSelectionAndShrinkPrintObject(aPO, documentIsTopLevel);
 +  NS_ENSURE_SUCCESS(rv, rv);
  
  #ifdef EXTENDED_DEBUG_PRINTING
@@ -1062,7 +971,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
        GetDocTitleAndURL(aPO, docStr, urlStr);
        char filename[256];
        sprintf(filename, "print_dump_%d.txt", gDumpFileNameCnt++);
-@@ -2186,16 +2463,17 @@ static nsresult CloneSelection(nsIDocume
+@@ -2186,16 +2459,17 @@ static nsresult CloneSelection(nsIDocume
    }
    return NS_OK;
  }
@@ -1080,7 +989,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    nsPresContext*  poPresContext = aPO->mPresContext;
  
    NS_ASSERTION(poPresContext, "PrintObject has not been reflowed");
-@@ -3187,16 +3465,17 @@ nsPrintEngine::CloseProgressDialog(nsIWe
+@@ -3187,16 +3461,17 @@ nsPrintEngine::CloseProgressDialog(nsIWe
      aWebProgressListener->OnStateChange(nsnull, nsnull, nsIWebProgressListener::STATE_STOP|nsIWebProgressListener::STATE_IS_DOCUMENT, nsnull);
    }
  }
@@ -1098,7 +1007,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      /* we're already finished with print preview */
      return rv;
    }
-@@ -3220,17 +3499,17 @@ nsPrintEngine::FinishPrintPreview()
+@@ -3220,17 +3495,17 @@ nsPrintEngine::FinishPrintPreview()
    // before it is to be created
  
  
@@ -1117,7 +1026,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    mPrtPreview = mPrt;
    mPrt        = nsnull;
  
-@@ -3264,33 +3543,23 @@ nsPrintEngine::StartPagePrintTimer(nsPri
+@@ -3264,33 +3539,23 @@ nsPrintEngine::StartPagePrintTimer(nsPri
  }
  
  /*=============== nsIObserver Interface ======================*/
@@ -1226,7 +1135,7 @@ diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
 +  bool                    DoSetPixelScale();
 +  void                    UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale);
 +  nsresult                ReconstructAndReflow(bool doSetPixelScale);
-+  nsresult                UpdateSelectionShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel);
++  nsresult                UpdateSelectionAndShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel);
 +  nsresult                InitPrintDocConstruction(bool aHandleError);
 +  void                    DispatchPageCountChanged();
  private:
@@ -1257,25 +1166,3 @@ diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/tool
          var canPrint = true;
          try
          {
-diff --git a/view/public/nsIView.h b/view/public/nsIView.h
---- a/view/public/nsIView.h
-+++ b/view/public/nsIView.h
-@@ -188,16 +188,18 @@ public:
-   bool GetFloating() const { return (mVFlags & NS_VIEW_FLAG_FLOATING) != 0; }
- 
-   /**
-    * Called to query the parent of the view.
-    * @result view's parent
-    */
-   nsIView* GetParent() const { return reinterpret_cast<nsIView*>(mParent); }
- 
-+  void SetParent(nsIView* aParent) { mParent = reinterpret_cast<nsView*>(aParent); }; 
-+
-   /**
-    * The view's first child is the child which is earliest in document order.
-    * @result first child
-    */
-   nsIView* GetFirstChild() const { return reinterpret_cast<nsIView*>(mFirstChild); }
- 
-   /**
-    * Called to query the next sibling of the view.

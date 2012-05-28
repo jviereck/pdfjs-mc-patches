@@ -1,0 +1,167 @@
+# HG changeset patch
+# Parent 28d25010af3af15ee4b20604905acc08bef2dabc
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -691,18 +691,16 @@ nsPrintEngine::DoCommonPrint(bool       
+ 
+   // Attach progressListener to catch network requests.
+   nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+   printf("<<>> SETUP WebProgress this:%p wp:%p ds:%p\n", this, webProgress.get(), mPrt->mPrintObject->mDocShell.get());
+   webProgress->AddProgressListener(
+     static_cast<nsIWebProgressListener*>(this),
+     nsIWebProgress::NOTIFY_STATE_REQUEST);
+ 
+-  mIsPrintPreview = aIsPrintPreview;
+-
+   printf("=== nsPrintEngine::DoCommonPrint - mLoadedCounter=%d, mLoadedContent=%s\n",
+       mLoadCounter, mLoadedContent ? "true" : "false");
+ 
+   mLoadCounter = 0;
+   mLoadedContent = false;
+ 
+   if (aIsPrintPreview) {
+     bool notifyOnInit = false;
+@@ -1756,17 +1754,17 @@ nsPrintEngine::SetupToPrintContent()
+     PR_PL(("STF Ratio is: %8.5f Effective Ratio: %8.5f Diff: %8.5f\n", mPrt->mShrinkRatio, calcRatio,  mPrt->mShrinkRatio-calcRatio));
+     PR_PL(("**************************************************************************\n"));
+ #endif
+   }
+   
+   // If the frames got reconstructed and reflowed the number of pages might
+   // has changed.
+   if (didReconstruction) {
+-    DispatchPageCountChanged();
++    FirePrintPreviewUpdateEvent();
+   }
+   
+   DUMP_DOC_LIST(("\nAfter Reflow------------------------------------------"));
+   PR_PL(("\n"));
+   PR_PL(("-------------------------------------------------------\n"));
+   PR_PL(("\n"));
+ 
+   CalcNumPrintablePages(mPrt->mNumPrintablePages);
+@@ -1875,37 +1873,37 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   for (PRInt32 i=0;i<cnt;i++) {
+     rv = ReflowDocList(aPO->mKids[i], aSetPixelScale);
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+   return NS_OK;
+ }
+ 
+ void
+-nsPrintEngine::DispatchPageCountChanged()
++nsPrintEngine::FirePrintPreviewUpdateEvent()
+ {
+   // Dispatch the event only while in PrintPreview. When printing, there is no
+   // listener bound to this event and therefore no need to dispatch it.
+-  if (mIsPrintPreview) {
++  if (mIsDoingPrintPreview) {
+     printf("=== nsPrintEngine::DispatchPageCountChanged() - dispatched!\n");
+     nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
+     (new nsAsyncDOMEvent(
+-       cv->GetDocument(), NS_LITERAL_STRING("printPreviewPageCountChanged"), true, true)
++       cv->GetDocument(), NS_LITERAL_STRING("printPreviewUpdate"), true, true)
+     )->RunDOMEventWhenSafe();
+   }
+ }
+ 
+ nsresult
+ nsPrintEngine::InitPrintDocConstruction(bool aHandleError)
+ {
+   nsresult rv;
+   rv = ReflowDocList(mPrt->mPrintObject, DoSetPixelScale());
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
+-  DispatchPageCountChanged();
++  FirePrintPreviewUpdateEvent();
+ 
+   printf("=== nsPrintEngine::DoCommonPrint - after reflow: mLoadCounter=%d, mPrtPreview=%p\n", mLoadCounter, mPrtPreview);
+ 
+   if (mLoadCounter == 0) {
+     AfterNetworkPrint(aHandleError);
+   }
+   return rv;
+ }
+@@ -1915,25 +1913,25 @@ nsPrintEngine::AfterNetworkPrint(bool aH
+ {
+   printf("=== nsPrintEngine::AfterNetworkPrint()\n");
+   nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+ 
+   webProgress->RemoveProgressListener(
+     static_cast<nsIWebProgressListener*>(this));
+ 
+   nsresult rv;
+-  if (mIsPrintPreview) {
++  if (mIsDoingPrintPreview) {
+     rv = FinishPrintPreview();
+   } else {
+     rv = DocumentReadyForPrinting();
+   }
+ 
+   /* cleaup on failure + notify user */
+   if (aHandleError && NS_FAILED(rv)) {
+-    CleanupOnFailure(rv, !mIsPrintPreview);
++    CleanupOnFailure(rv, !mIsDoingPrintPreview);
+   }
+ 
+   return rv;
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 
+diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
+--- a/layout/printing/nsPrintEngine.h
++++ b/layout/printing/nsPrintEngine.h
+@@ -273,24 +273,23 @@ protected:
+   nsPrintData*            mOldPrtPreview;
+ 
+   nsCOMPtr<nsIDocument>   mDocument;
+ 
+   FILE* mDebugFile;
+ 
+   PRInt32                 mLoadCounter;
+   bool                    mLoadedContent;
+-  bool                    mIsPrintPreview; 
+ 
+   nsresult                AfterNetworkPrint(bool aHandleError);
+ 
+   nsresult                SetRootView(nsPrintObject* aPO, bool& doReturn, bool&documentIsTopLevel, nsSize& adjSize);
+   bool                    DoSetPixelScale();
+   void                    UpdateZoomRatio(nsPrintObject* aPO, bool aSetPixelScale);
+   nsresult                ReconstructAndReflow(bool doSetPixelScale);
+   nsresult                UpdateSelectionAndShrinkPrintObject(nsPrintObject* aPO, bool documentIsTopLevel);
+   nsresult                InitPrintDocConstruction(bool aHandleError);
+-  void                    DispatchPageCountChanged();
++  void                    FirePrintPreviewUpdateEvent();
+ private:
+   nsPrintEngine& operator=(const nsPrintEngine& aOther) MOZ_DELETE;
+ };
+ 
+ #endif /* nsPrintEngine_h___ */
+diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
+--- a/toolkit/components/printing/content/printPreviewBindings.xml
++++ b/toolkit/components/printing/content/printPreviewBindings.xml
+@@ -127,19 +127,17 @@
+      
+       <constructor>
+       <![CDATA[
+         var print = PrintUtils.getPrintPreview();
+         this.mTotalPages.value = print.printPreviewNumPages;
+         this.mPageTextBox.max = print.printPreviewNumPages;
+ 
+         this.updateToolbar();
+-
+-        document.addEventListener(
+-            "printPreviewPageCountChanged", this.updateToolbar.bind(this), false);
++        document.addEventListener("printPreviewUpdate", this.updateToolbar.bind(this), false);
+ 
+         // Hide the ``Print...'' button when the underlying gfx code does not
+         // support multiple devicecontext to be used concurrently
+         // (e.g. printing and printpreview at the same time; required as 
+         // legacy support for unices.'s PostScript module
+         // XXX the scaling widgets, and the orientation widgets on unices.
+         var canPrint = true;
+         try

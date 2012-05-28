@@ -1,0 +1,76 @@
+# HG changeset patch
+# Parent 3a52c488f51e7250cf0ce7f50f312d29e0e12817
+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -230,18 +230,20 @@ nsPrintEngine::nsPrintEngine() :
+   mPagePrintTimer(nsnull),
+   mPageSeqFrame(nsnull),
+   mPrtPreview(nsnull),
+   mOldPrtPreview(nsnull),
+   mDebugFile(nsnull),
+   mLoadCounter(0),
+   mLoadedContent(false)
+ {
++  printf("=== nsPrintEngine:: INIT\n");
+ }
+ 
++
+ //-------------------------------------------------------
+ nsPrintEngine::~nsPrintEngine()
+ {
+   Destroy(); // for insurance
+ }
+ 
+ //-------------------------------------------------------
+ void nsPrintEngine::Destroy()
+@@ -1877,17 +1879,17 @@ nsPrintEngine::ReflowDocList(nsPrintObje
+   return NS_OK;
+ }
+ 
+ void
+ nsPrintEngine::FirePrintPreviewUpdateEvent()
+ {
+   // Dispatch the event only while in PrintPreview. When printing, there is no
+   // listener bound to this event and therefore no need to dispatch it.
+-  if (mIsDoingPrintPreview) {
++  if (mIsDoingPrintPreview && !mIsDoingPrinting) {
+     printf("=== nsPrintEngine::DispatchPageCountChanged() - dispatched!\n");
+     nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
+     (new nsAsyncDOMEvent(
+        cv->GetDocument(), NS_LITERAL_STRING("printPreviewUpdate"), true, true)
+     )->RunDOMEventWhenSafe();
+   }
+ }
+ 
+@@ -1913,25 +1915,25 @@ nsPrintEngine::AfterNetworkPrint(bool aH
+ {
+   printf("=== nsPrintEngine::AfterNetworkPrint()\n");
+   nsCOMPtr<nsIWebProgress> webProgress = do_QueryInterface(mPrt->mPrintObject->mDocShell);
+ 
+   webProgress->RemoveProgressListener(
+     static_cast<nsIWebProgressListener*>(this));
+ 
+   nsresult rv;
+-  if (mIsDoingPrintPreview) {
++  if (mIsDoingPrinting) {
++    rv = DocumentReadyForPrinting();
++  } else {
+     rv = FinishPrintPreview();
+-  } else {
+-    rv = DocumentReadyForPrinting();
+   }
+ 
+   /* cleaup on failure + notify user */
+   if (aHandleError && NS_FAILED(rv)) {
+-    CleanupOnFailure(rv, !mIsDoingPrintPreview);
++    CleanupOnFailure(rv, !mIsDoingPrinting);
+   }
+ 
+   return rv;
+ }
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ // nsIWebProgressListener
+ 

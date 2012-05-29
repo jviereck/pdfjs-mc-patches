@@ -1,10 +1,10 @@
 # HG changeset patch
-# Parent 9e477b7ff635d36b33cc90a2c155fdd97b297018
+# Parent 95ce99ef9581e02e1843eab77a9babdb3d17f89b
 
 diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
 --- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
 +++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
-@@ -1030,18 +1030,20 @@ nsCanvasRenderingContext2D::ApplyStyle(S
+@@ -996,18 +996,20 @@ nsCanvasRenderingContext2D::ApplyStyle(S
          color.a *= CurrentState().globalAlpha;
  
      mThebes->SetColor(color);
@@ -25,7 +25,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      }
  
      nsSVGEffects::InvalidateDirectRenderingObservers(HTMLCanvasElement());
-@@ -1050,19 +1052,21 @@ nsCanvasRenderingContext2D::Redraw()
+@@ -1016,19 +1018,21 @@ nsCanvasRenderingContext2D::Redraw()
  
      return NS_OK;
  }
@@ -48,7 +48,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
  
      if (!mCanvasElement) {
          NS_ASSERTION(mDocShell, "Redraw with no canvas element or docshell!");
-@@ -1074,20 +1078,22 @@ nsCanvasRenderingContext2D::Redraw(const
+@@ -1040,20 +1044,22 @@ nsCanvasRenderingContext2D::Redraw(const
      HTMLCanvasElement()->InvalidateCanvasContent(&r);
  
      return NS_OK;
@@ -74,7 +74,30 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
 diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
 --- a/content/html/content/src/nsHTMLCanvasElement.cpp
 +++ b/content/html/content/src/nsHTMLCanvasElement.cpp
-@@ -875,21 +875,24 @@ void
+@@ -217,22 +217,19 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
+ 
+ bool
+ nsHTMLCanvasElement::HandlePrintCallback()
+ {
+   printf("=== HandlePrintCallback\n");
+   // If the canvas is a printCanvas and the printing target is real paper,
+   // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
+   if (mIsReadyToPrint || !mIsPrintCanvas || !mIsPrintPreview) {
+-    printf("=== handleprintcallback:early quit\n");
+     return true;
+   }
+ 
+-  printf("=== HandlePrintCallback:continue\n");
+-
+   mIsReadyToPrint = true;
+   CallPrintCallback(nsnull);
+   return true;
+ }
+ 
+ void
+ nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
+ {
+@@ -835,21 +832,24 @@ void
  nsHTMLCanvasElement::SetWriteOnly()
  {
    mWriteOnly = true;
@@ -100,7 +123,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
    if (damageRect) {
      nsIntSize size = GetWidthHeight();
      if (size.width != 0 && size.height != 0) {
-@@ -908,16 +911,20 @@ nsHTMLCanvasElement::InvalidateCanvasCon
+@@ -868,16 +868,20 @@ nsHTMLCanvasElement::InvalidateCanvasCon
  
        invalRect = invalRect.Intersect(nsRect(nsPoint(0,0), contentArea.Size()));
      }
@@ -121,3 +144,45 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  
  void
  nsHTMLCanvasElement::InvalidateCanvas()
+diff --git a/gfx/layers/Layers.h b/gfx/layers/Layers.h
+--- a/gfx/layers/Layers.h
++++ b/gfx/layers/Layers.h
+@@ -1312,16 +1312,17 @@ public:
+   void Updated() { mDirty = true; }
+ 
+   /**
+    * Register a callback to be called at the end of each transaction.
+    */
+   typedef void (* DidTransactionCallback)(void* aClosureData);
+   void SetDidTransactionCallback(DidTransactionCallback aCallback, void* aClosureData)
+   {
++    printf("=== CanvasLayer::SetDidTransactionCallback\n");
+     mCallback = aCallback;
+     mCallbackData = aClosureData;
+   }
+ 
+   /**
+    * CONSTRUCTION PHASE ONLY
+    * Set the filter used to resample this image (if necessary).
+    */
+@@ -1342,17 +1343,19 @@ public:
+         SnapTransform(aTransformToSurface, gfxRect(0, 0, 0, 0), nsnull);
+     ComputeEffectiveTransformForMaskLayer(aTransformToSurface);
+   }
+ 
+ protected:
+   CanvasLayer(LayerManager* aManager, void* aImplData)
+     : Layer(aManager, aImplData),
+       mCallback(nsnull), mCallbackData(nsnull), mFilter(gfxPattern::FILTER_GOOD),
+-      mDirty(false) {}
++      mDirty(false) {
++    printf("=== CanvasLayer::CanvasLayer aka. INIT\n");
++  }
+ 
+   virtual nsACString& PrintInfo(nsACString& aTo, const char* aPrefix);
+ 
+   void FireDidTransactionCallback()
+   {
+     if (mCallback) {
+       mCallback(mCallbackData);
+     }

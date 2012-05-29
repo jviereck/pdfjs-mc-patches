@@ -1,0 +1,52 @@
+# HG changeset patch
+# Parent 9914fa10d81b4cbeac13e05a6cd48e2217e2e5b1
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -209,42 +209,28 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
+     rv = UpdateContext();
+     NS_ENSURE_SUCCESS(rv, rv);
+   }
+ 
+   return rv;
+ }
+ 
+ bool
+-nsHTMLCanvasElement::HandlePrintCallback(nsIntSize &size)
++nsHTMLCanvasElement::HandlePrintCallback()
+ {
+   printf("=== HandlePrintCallback\n");
+   // If the canvas is a printCanvas and the printing target is real paper,
+   // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
+-  if (!mIsPrintCanvas || !mIsPrintPreview) {
++  if (mIsReadyToPrint || !mIsPrintCanvas || !mIsPrintPreview) {
+     printf("=== handleprintcallback:early quit\n");
+     return true;
+   }
+ 
+-  printf("=== HandlePrintCallback:continue\n");
+-  nsresult rv;
+-
+-  // For print preview, resize the canvas context, such that
+-  GetClientWidth(&size.width);
+-  GetClientHeight(&size.height);
+-
+-  if (!mIsReadyToPrint) {
+-    rv = mCurrentContext->AdjustToSize(size.width, size.height);
+-
+-    if (!NS_SUCCEEDED(rv))
+-      return false;
+-
+-    mIsReadyToPrint = true;
+-    CallPrintCallback();
+-  }
++  mIsReadyToPrint = true;
++  CallPrintCallback();
+   return true;
+ }
+ 
+ void
+ nsHTMLCanvasElement::CallPrintCallback()
+ {
+   printf("=== CE::CallPrintCallback\n");
+   // ??? Any ADD_REF magic to be done here ???

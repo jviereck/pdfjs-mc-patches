@@ -1,22 +1,19 @@
 # HG changeset patch
-# Parent 3d9cf97734996773d381932f51fb77b8ba618321
+# Parent 6ee87caf710b41fcea52b42f226428565e6202b2
 
 diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/src/nsCanvasRenderingContext2D.cpp
 --- a/content/canvas/src/nsCanvasRenderingContext2D.cpp
 +++ b/content/canvas/src/nsCanvasRenderingContext2D.cpp
-@@ -996,18 +996,20 @@ nsCanvasRenderingContext2D::ApplyStyle(S
-         color.a *= CurrentState().globalAlpha;
- 
+@@ -998,16 +998,17 @@ nsCanvasRenderingContext2D::ApplyStyle(S
      mThebes->SetColor(color);
  }
  
  nsresult
  nsCanvasRenderingContext2D::Redraw()
  {
-+    /*
      if (mIsEntireFrameInvalid)
          return NS_OK;
-+    */
++
      mIsEntireFrameInvalid = true;
  
      if (!mCanvasElement) {
@@ -25,7 +22,7 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      }
  
      nsSVGEffects::InvalidateDirectRenderingObservers(HTMLCanvasElement());
-@@ -1016,19 +1018,21 @@ nsCanvasRenderingContext2D::Redraw()
+@@ -1016,17 +1017,17 @@ nsCanvasRenderingContext2D::Redraw()
  
      return NS_OK;
  }
@@ -36,42 +33,15 @@ diff --git a/content/canvas/src/nsCanvasRenderingContext2D.cpp b/content/canvas/
      ++mInvalidateCount;
 -
 +  
-+    /*
      if (mIsEntireFrameInvalid)
          return NS_OK;
-+    */
  
      if (mPredictManyRedrawCalls ||
          mInvalidateCount > kCanvasMaxInvalidateCount) {
          return Redraw();
      }
  
-     if (!mCanvasElement) {
-         NS_ASSERTION(mDocShell, "Redraw with no canvas element or docshell!");
-@@ -1040,20 +1044,22 @@ nsCanvasRenderingContext2D::Redraw(const
-     HTMLCanvasElement()->InvalidateCanvasContent(&r);
- 
-     return NS_OK;
- }
- 
- NS_IMETHODIMP
- nsCanvasRenderingContext2D::RedrawUser(const gfxRect& r)
- {
-+    /*
-     if (mIsEntireFrameInvalid) {
-         ++mInvalidateCount;
-         return NS_OK;
-     }
-+    */
- 
-     return Redraw(mThebes->UserToDevice(r));
- }
- 
- NS_IMETHODIMP
- nsCanvasRenderingContext2D::SetDimensions(PRInt32 width, PRInt32 height)
- {
-     Initialize(NULL, width, height);
-@@ -4189,17 +4195,20 @@ nsCanvasRenderingContext2D::GetCanvasLay
+@@ -4189,17 +4190,20 @@ nsCanvasRenderingContext2D::GetCanvasLay
      }
  
      nsRefPtr<CanvasLayer> canvasLayer = aManager->CreateCanvasLayer();
@@ -208,3 +178,26 @@ diff --git a/gfx/layers/Layers.h b/gfx/layers/Layers.h
      if (mCallback) {
        mCallback(mCallbackData);
      }
+diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasFrame.cpp
+--- a/layout/generic/nsHTMLCanvasFrame.cpp
++++ b/layout/generic/nsHTMLCanvasFrame.cpp
+@@ -274,16 +274,19 @@ nsHTMLCanvasFrame::BuildLayer(nsDisplayL
+     return nsnull;
+ 
+   nsPresContext* presContext = PresContext();
+   gfxRect r = gfxRect(presContext->AppUnitsToGfxUnits(area.x),
+                       presContext->AppUnitsToGfxUnits(area.y),
+                       presContext->AppUnitsToGfxUnits(area.width),
+                       presContext->AppUnitsToGfxUnits(area.height));
+ 
++  printf("=== nsHTMLCanvasFrame::BuildLayer r=(%2.2f, %2.2f, %2.2f, %2.2f)\n",
++    r.x, r.y, r.width, r.height);
++
+   // Transform the canvas into the right place
+   gfxMatrix transform;
+   transform.Translate(r.TopLeft());
+   transform.Scale(r.Width()/canvasSize.width, r.Height()/canvasSize.height);
+   layer->SetTransform(gfx3DMatrix::From2D(transform));
+   layer->SetFilter(nsLayoutUtils::GetGraphicsFilterForFrame(this));
+   layer->SetVisibleRegion(nsIntRect(0, 0, canvasSize.width, canvasSize.height));
+ 

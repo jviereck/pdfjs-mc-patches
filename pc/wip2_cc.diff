@@ -1,0 +1,135 @@
+# HG changeset patch
+# Parent 81195a412ab2764e0d0c1ae588286cff27fe384b
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -22,16 +22,17 @@
+ #include "mozilla/Telemetry.h"
+ 
+ #include "nsFrameManager.h"
+ #include "nsDisplayList.h"
+ #include "ImageLayers.h"
+ #include "BasicLayers.h"
+ #include "imgIEncoder.h"
+ #include "nsITimer.h"
++#include "nsAsyncDOMEvent.h"
+ 
+ #include "nsIWritablePropertyBag2.h"
+ 
+ #include "nsIDOMHTMLCanvasElement.h"
+ 
+ #define DEFAULT_CANVAS_WIDTH 300
+ #define DEFAULT_CANVAS_HEIGHT 150
+ 
+@@ -42,19 +43,22 @@ using namespace mozilla::layers;
+ #define NS_ICANVASPRINTSTATE_IID \
+    {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
+ 
+ class nsCanvasPrintState : public nsICanvasPrintState
+ {
+ public:
+   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
+ 
+-  nsCanvasPrintState(nsICanvasRenderingContextInternal *aContext, nsITimerCallback *aCallback)
+-      : mIsDone(false), mIsAborted(false), mContext(aContext), mCallback(aCallback)
+-  {
++  nsCanvasPrintState(
++      nsHTMLCanvasElement *aCanvas,
++      nsICanvasRenderingContextInternal *aContext, 
++      nsITimerCallback *aCallback)
++  : mIsDone(false), mIsAborted(false),
++    mCanvas(aCanvas), mContext(aContext), mCallback(aCallback) {
+   }
+ 
+   NS_IMETHOD GetContext(nsISupports **context)
+   {
+     printf("=== GetContext2\n");
+     NS_ADDREF(*context = mContext);
+     return NS_OK;
+   }
+@@ -65,16 +69,19 @@ public:
+     Finalize(false);
+     return NS_OK;
+   }
+ 
+   NS_IMETHOD Abort()
+   {
+     printf("CPS::Abort\n");
+     Finalize(true);
++    (new nsAsyncDOMEvent(
++       mCanvas->GetDocument(), NS_LITERAL_STRING("printCanvasAbort"), true, true)
++    )->RunDOMEventWhenSafe();
+     return NS_OK;
+   }
+ 
+   void Finalize(bool aAborted)
+   {
+     if (!mIsDone) {
+       mIsDone = true;
+       mIsAborted = aAborted;
+@@ -97,16 +104,17 @@ public:
+   
+   NS_DECL_ISUPPORTS
+ private:
+   ~nsCanvasPrintState() 
+   {
+     printf("--- nsCanvasPrintState::Destory\n");
+   }
+ 
++  nsRefPtr<nsHTMLCanvasElement> mCanvas;
+   nsCOMPtr<nsICanvasRenderingContextInternal> mContext;
+   nsCOMPtr<nsITimerCallback> mCallback;
+ protected:
+   /* additional members */
+ };
+ 
+ NS_DEFINE_STATIC_IID_ACCESSOR(nsCanvasPrintState, NS_ICANVASPRINTSTATE_IID) 
+ 
+@@ -230,17 +238,17 @@ nsHTMLCanvasElement::HandlePrintCallback
+   return true;
+ }
+ 
+ void
+ nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
+ {
+   printf("=== CE::CallPrintCallback\n");
+   // ??? Any ADD_REF magic to be done here ???
+-  mPrintState = new nsCanvasPrintState(mCurrentContext, aCallback);
++  mPrintState = new nsCanvasPrintState(this, mCurrentContext, aCallback);
+   mPrintCallback->Render(mPrintState);
+ }
+ 
+ void
+ nsHTMLCanvasElement::ResetPrintCallback()
+ {
+   if (mPrintState) {
+     mPrintState->Reset();
+diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
+--- a/toolkit/components/printing/content/printPreviewBindings.xml
++++ b/toolkit/components/printing/content/printPreviewBindings.xml
+@@ -128,16 +128,24 @@
+       <constructor>
+       <![CDATA[
+         var print = PrintUtils.getPrintPreview();
+         this.mTotalPages.value = print.printPreviewNumPages;
+         this.mPageTextBox.max = print.printPreviewNumPages;
+ 
+         this.updateToolbar();
+ 
++        alert("foo");
++
++        // If a printCanvas aborts, then 
++        document.addEventListener("printCanvasAbort", function() {
++          alert("bar");
++          PrintUtils.exitPrintPreview();
++        }, false);
++
+         // Hide the ``Print...'' button when the underlying gfx code does not
+         // support multiple devicecontext to be used concurrently
+         // (e.g. printing and printpreview at the same time; required as 
+         // legacy support for unices.'s PostScript module
+         // XXX the scaling widgets, and the orientation widgets on unices.
+         var canPrint = true;
+         try
+         {

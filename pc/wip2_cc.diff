@@ -1,5 +1,5 @@
 # HG changeset patch
-# Parent 81195a412ab2764e0d0c1ae588286cff27fe384b
+# Parent 439ad957820285e0887a82a1144bc028125e64c9
 
 diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
 --- a/content/html/content/src/nsHTMLCanvasElement.cpp
@@ -108,7 +108,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
 --- a/toolkit/components/printing/content/printPreviewBindings.xml
 +++ b/toolkit/components/printing/content/printPreviewBindings.xml
-@@ -128,16 +128,24 @@
+@@ -128,16 +128,40 @@
        <constructor>
        <![CDATA[
          var print = PrintUtils.getPrintPreview();
@@ -117,13 +117,29 @@ diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/tool
  
          this.updateToolbar();
  
-+        alert("foo");
-+
-+        // If a printCanvas aborts, then 
-+        document.addEventListener("printCanvasAbort", function() {
-+          alert("bar");
++        /*
++        function closeOnPrintCanvasAbort() {
++          Components.utils.reportError("closeOnPrintCanvasAbort");
 +          PrintUtils.exitPrintPreview();
-+        }, false);
++
++          document.removeEventListener(
++            "printCanvasAbort", closeOnPrintCanvasAbort);
++        }
++        // If a printCanvas aborts, then close print preview.
++        document.addEventListener("printCanvasAbort",
++          closeOnPrintCanvasAbort, false);
++
++        function onCloseWindow() {
++          Components.utils.reportError("beforeunload");
++          document.removeEventListener(
++            "printCanvasAbort", closeOnPrintCanvasAbort);
++          window.removeEventListener(
++            "close", onCloseWindow();
++        }
++
++        // Remove the printCanasAbort event again when closing the window.
++        window.addEventListener("close", , false);
++        */
 +
          // Hide the ``Print...'' button when the underlying gfx code does not
          // support multiple devicecontext to be used concurrently
@@ -133,3 +149,110 @@ diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/tool
          var canPrint = true;
          try
          {
+@@ -191,16 +215,31 @@
+ 
+             // Now do PrintPreview
+             PrintUtils.printPreview();
+           }
+         ]]>
+         </body>
+       </method>
+ 
++      <method name="doPageSetup">
++        <body>
++        <![CDATA[
++          var didOK = PrintUtils.showPageSetup();
++          if (didOK) {
++            // the changes that effect the UI
++            this.updateToolbar();
++
++            // Now do PrintPreview
++            PrintUtils.printPreview();
++          }
++        ]]>
++        </body>
++      </method>
++
+       <method name="navigate">
+         <parameter name="aDirection"/>
+         <parameter name="aPageNum"/>
+         <parameter name="aHomeOrEnd"/>
+         <body>
+         <![CDATA[          
+           var print = PrintUtils.getPrintPreview();
+ 
+diff --git a/toolkit/components/printing/content/printUtils.js b/toolkit/components/printing/content/printUtils.js
+--- a/toolkit/components/printing/content/printUtils.js
++++ b/toolkit/components/printing/content/printUtils.js
+@@ -157,16 +157,17 @@ var PrintUtils = {
+   },
+ 
+   _closeHandlerPP: null,
+   _webProgressPP: null,
+   _callback: null,
+   _sourceBrowser: null,
+   _originalTitle: "",
+   _originalURL: "",
++  _exitPrintPreview: null,
+ 
+   // This observer is called once the progress dialog has been "opened"
+   _obsPP: 
+   {
+     observe: function(aSubject, aTopic, aData)
+     {
+       // delay the print preview to show the content of the progress dialog
+       setTimeout(function () { PrintUtils.enterPrintPreview(); }, 0);
+@@ -232,32 +233,41 @@ var PrintUtils = {
+       this._closeHandlerPP = document.documentElement.getAttribute("onclose");
+     else
+       this._closeHandlerPP = null;
+     document.documentElement.setAttribute("onclose", "PrintUtils.exitPrintPreview(); return false;");
+ 
+     // disable chrome shortcuts...
+     window.addEventListener("keypress", this.onKeyPressPP, true);
+ 
++    // close print preview if a print canvas got aborted.
++    this._exitPrintPreview = this.exitPrintPreview.bind(this);
++    document.documentElement.addEventListener("printCanvasAbort",
++        this.exitPrintPreview, true);
++
+     var browser = this._callback.getPrintPreviewBrowser();
+     browser.collapsed = false;
+     browser.contentWindow.focus();
+ 
+     // on Enter PP Call back
+     this._callback.onEnter();
+   },
+ 
+   exitPrintPreview: function ()
+   {
++    Components.utils.reportError("exitPrintPreview");
++
+     window.removeEventListener("keypress", this.onKeyPressPP, true);
+ 
+     // restore the old close handler
+     document.documentElement.setAttribute("onclose", this._closeHandlerPP);
+     this._closeHandlerPP = null;
+ 
++    document.documentElement.removeEventListener("printCanvasAbort", this.exitPrintPreview, true);
++
+     var webBrowserPrint = this.getPrintPreview();
+     webBrowserPrint.exitPrintPreview();
+ 
+     // remove the print preview toolbar
+     var printPreviewTB = document.getElementById("print-preview-toolbar");
+     this._callback.getNavToolbox().parentNode.removeChild(printPreviewTB);
+ 
+     var fm = Components.classes["@mozilla.org/focus-manager;1"]
+@@ -295,8 +305,11 @@ var PrintUtils = {
+     }
+     // cancel shortkeys
+     if (isModif) {
+       aEvent.preventDefault();
+       aEvent.stopPropagation();
+     }
+   }
+ }
++
++// Make an explicit binding such that addEventListener/removeEventListener work.
++PrintUtils.exitPrintPreview = PrintUtils.exitPrintPreview.bind(PrintUtils);

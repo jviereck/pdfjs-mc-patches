@@ -1,0 +1,215 @@
+# HG changeset patch
+# Parent 62f1f8b2281a43a9cbf2484fd18719c3831408de
+
+diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
+--- a/content/html/content/public/nsHTMLCanvasElement.h
++++ b/content/html/content/public/nsHTMLCanvasElement.h
+@@ -166,18 +166,16 @@ protected:
+                             const nsAString& aType,
+                             nsIDOMFile** aResult);
+   nsresult GetContextHelper(const nsAString& aContextId,
+                             bool aForceThebes,
+                             nsICanvasRenderingContextInternal **aContext);
+ 
+   nsString mCurrentContextId;
+ 
+-  bool mIsReadyToPrint;
+-
+   nsCOMPtr<nsIDOMHTMLCanvasElement> mOriginalCanvas;
+   nsCOMPtr<nsIPrintCallback> mPrintCallback;
+   nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
+   nsCOMPtr<nsCanvasPrintState> mPrintState;
+ public:
+   // Record whether this canvas should be write-only or not.
+   // We set this when script paints an image from a different origin.
+   // We also transitively set it when script paints a canvas which
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -43,16 +43,17 @@ using namespace mozilla::layers;
+ #define NS_ICANVASPRINTSTATE_IID \
+    {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
+ 
+ class nsCanvasPrintState : public nsICanvasPrintState
+ {
+ public:
+   NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
+ 
++
+   nsCanvasPrintState(
+       nsHTMLCanvasElement *aCanvas,
+       nsICanvasRenderingContextInternal *aContext, 
+       nsITimerCallback *aCallback)
+   : mIsDone(false), mIsAborted(false),
+     mCanvas(aCanvas), mContext(aContext), mCallback(aCallback) {
+   }
+ 
+@@ -90,51 +91,61 @@ public:
+       }
+       Reset();
+     }
+   }
+ 
+   void Reset()
+   {
+     printf("=== nsCanvasPrintState::Reset()\n");
+-    mContext = nsnull;
+-    mCallback = nsnull;
+   }
+ 
+   bool mIsDone;
+   bool mIsAborted;
+-  
+-  NS_DECL_ISUPPORTS
++
++  // CC
++  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
++  NS_DECL_CYCLE_COLLECTION_CLASS(nsCanvasPrintState)
+ private:
+   ~nsCanvasPrintState() 
+   {
+     printf("--- nsCanvasPrintState::Destory\n");
+   }
+ 
++protected:
+   nsRefPtr<nsHTMLCanvasElement> mCanvas;
+   nsCOMPtr<nsICanvasRenderingContextInternal> mContext;
+   nsCOMPtr<nsITimerCallback> mCallback;
+-protected:
+-  /* additional members */
+ };
+ 
+ NS_DEFINE_STATIC_IID_ACCESSOR(nsCanvasPrintState, NS_ICANVASPRINTSTATE_IID) 
+ 
+-NS_IMPL_ADDREF(nsCanvasPrintState)
+-NS_IMPL_RELEASE(nsCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTING_ADDREF(nsCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTING_RELEASE(nsCanvasPrintState)
+ 
+ DOMCI_DATA(CanvasPrintState, nsCanvasPrintState)
+ 
+-NS_INTERFACE_MAP_BEGIN(nsCanvasPrintState)
+-  NS_INTERFACE_MAP_ENTRY(nsCanvasPrintState)
++NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsCanvasPrintState)
++  NS_INTERFACE_MAP_ENTRY(nsISupports)
+   NS_INTERFACE_MAP_ENTRY(nsICanvasPrintState)
+   NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(CanvasPrintState)
+-  NS_INTERFACE_MAP_ENTRY(nsISupports)
+ NS_INTERFACE_MAP_END
+ 
++NS_IMPL_CYCLE_COLLECTION_CLASS(nsCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsCanvasPrintState)
++  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR_AMBIGUOUS(mCanvas, nsIDOMHTMLCanvasElement)
++  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mContext)
++  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mCallback)
++NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
++
++NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsCanvasPrintState)
++  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR_AMBIGUOUS(mCanvas, nsIDOMHTMLCanvasElement)
++  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mContext)
++  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCallback)
++NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+ // ---------------------------------------------------------------------------
+ 
+ nsGenericHTMLElement*
+ NS_NewHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo,
+                         FromParser aFromParser)
+ {
+   return new nsHTMLCanvasElement(aNodeInfo);
+ }
+@@ -224,17 +235,17 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
+ }
+ 
+ bool
+ nsHTMLCanvasElement::HandlePrintCallback()
+ {
+   printf("=== HandlePrintCallback\n");
+   // If the canvas is a printCanvas and the printing target is real paper,
+   // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
+-  if (mIsReadyToPrint || !mIsPrintCanvas || !mIsPrintPreview) {
++  if (mPrintState || !mIsPrintCanvas || !mIsPrintPreview) {
+     return true;
+   }
+ 
+   mIsReadyToPrint = true;
+   CallPrintCallback(nsnull);
+   return true;
+ }
+ 
+diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
+--- a/layout/generic/nsSimplePageSequence.h
++++ b/layout/generic/nsSimplePageSequence.h
+@@ -138,26 +138,27 @@ protected:
+   PRInt32      mPageNum;
+   PRInt32      mTotalPages;
+   PRInt32      mPrintRangeType;
+   PRInt32      mFromPageNum;
+   PRInt32      mToPageNum;
+   nsTArray<PRInt32> mPageRanges;
+   nsTArray<nsRefPtr<nsHTMLCanvasElement> > mCurrentCanvasList;
+ 
+-  bool         mCurrentCanvasListSetup;
+-  void         ComputePrintThisPage();
++  void         ();
+ 
+   // Selection Printing Info
+   nscoord      mSelectionHeight;
+   nscoord      mYSelOffset;
+ 
+   // Asynch Printing
+   bool mPrintThisPage;
+   bool mDoingPageRange;
+ 
+   bool mIsPrintingSelection;
+   
+   bool mCalledBeginPage;
++
++  bool mCurrentCanvasListSetup;
+ };
+ 
+ #endif /* nsSimplePageSequence_h___ */
+ 
+diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
+--- a/toolkit/components/printing/content/printPreviewBindings.xml
++++ b/toolkit/components/printing/content/printPreviewBindings.xml
+@@ -128,40 +128,16 @@
+       <constructor>
+       <![CDATA[
+         var print = PrintUtils.getPrintPreview();
+         this.mTotalPages.value = print.printPreviewNumPages;
+         this.mPageTextBox.max = print.printPreviewNumPages;
+ 
+         this.updateToolbar();
+ 
+-        /*
+-        function closeOnPrintCanvasAbort() {
+-          Components.utils.reportError("closeOnPrintCanvasAbort");
+-          PrintUtils.exitPrintPreview();
+-
+-          document.removeEventListener(
+-            "printCanvasAbort", closeOnPrintCanvasAbort);
+-        }
+-        // If a printCanvas aborts, then close print preview.
+-        document.addEventListener("printCanvasAbort",
+-          closeOnPrintCanvasAbort, false);
+-
+-        function onCloseWindow() {
+-          Components.utils.reportError("beforeunload");
+-          document.removeEventListener(
+-            "printCanvasAbort", closeOnPrintCanvasAbort);
+-          window.removeEventListener(
+-            "close", onCloseWindow();
+-        }
+-
+-        // Remove the printCanasAbort event again when closing the window.
+-        window.addEventListener("close", , false);
+-        */
+-
+         // Hide the ``Print...'' button when the underlying gfx code does not
+         // support multiple devicecontext to be used concurrently
+         // (e.g. printing and printpreview at the same time; required as 
+         // legacy support for unices.'s PostScript module
+         // XXX the scaling widgets, and the orientation widgets on unices.
+         var canPrint = true;
+         try
+         {

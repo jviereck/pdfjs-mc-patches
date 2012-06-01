@@ -77,7 +77,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +#define NS_ICANVASPRINTSTATE_IID \
 +   {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
 +
-+class nsCanvasPrintState : public nsICanvasPrintState
++class nsCanvasPrintState : public nsIDOMCanvasPrintState
 +{
 +public:
 +  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
@@ -150,7 +150,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +
 +NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsCanvasPrintState)
 +  NS_INTERFACE_MAP_ENTRY(nsISupports)
-+  NS_INTERFACE_MAP_ENTRY(nsICanvasPrintState)
++  NS_INTERFACE_MAP_ENTRY(nsIDOMCanvasPrintState)
 +  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(CanvasPrintState)
 +NS_INTERFACE_MAP_END
 +
@@ -331,8 +331,8 @@ diff --git a/dom/base/nsDOMClassInfo.cpp b/dom/base/nsDOMClassInfo.cpp
 @@ -3909,4 +3911,8 @@ nsDOMClassInfo::Init()
    DOM_CLASSINFO_MAP_END
  
-+  DOM_CLASSINFO_MAP_BEGIN(CanvasPrintState, nsICanvasPrintState)
-+    DOM_CLASSINFO_MAP_ENTRY(nsICanvasPrintState)
++  DOM_CLASSINFO_MAP_BEGIN(CanvasPrintState, nsIDOMCanvasPrintState)
++    DOM_CLASSINFO_MAP_ENTRY(nsIDOMCanvasPrintState)
 +  DOM_CLASSINFO_MAP_END
 +
    DOM_CLASSINFO_MAP_BEGIN(XSLTProcessor, nsIXSLTProcessor)
@@ -355,7 +355,7 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
  interface nsIInputStreamCallback;
  
 +[scriptable, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a67)]
-+interface nsICanvasPrintState : nsISupports {
++interface nsIDOMCanvasPrintState : nsISupports {
 +  readonly attribute nsISupports context;
 +
 +  void done();
@@ -364,7 +364,7 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
 +
 +[scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a66)]
 +interface nsIPrintCallback : nsISupports {
-+  void render(in nsICanvasPrintState ctx);
++  void render(in nsIDOMCanvasPrintState ctx);
 +};
 +
  [scriptable, uuid(5929542B-C68E-48AB-84F9-D9642DA39720)]
@@ -376,24 +376,6 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
 +  attribute nsIPrintCallback mozPrintCallback;
  };
  
-diff --git a/gfx/layers/Layers.h b/gfx/layers/Layers.h
---- a/gfx/layers/Layers.h
-+++ b/gfx/layers/Layers.h
-@@ -1318,4 +1318,5 @@ public:
-   void SetDidTransactionCallback(DidTransactionCallback aCallback, void* aClosureData)
-   {
-+    printf("=== CanvasLayer::SetDidTransactionCallback\n");
-     mCallback = aCallback;
-     mCallbackData = aClosureData;
-@@ -1348,5 +1349,7 @@ protected:
-     : Layer(aManager, aImplData),
-       mCallback(nsnull), mCallbackData(nsnull), mFilter(gfxPattern::FILTER_GOOD),
--      mDirty(false) {}
-+      mDirty(false) {
-+    printf("=== CanvasLayer::CanvasLayer aka. INIT\n");
-+  }
- 
-   virtual nsACString& PrintInfo(nsACString& aTo, const char* aPrefix);
 diff --git a/layout/generic/nsHTMLCanvasFrame.cpp b/layout/generic/nsHTMLCanvasFrame.cpp
 --- a/layout/generic/nsHTMLCanvasFrame.cpp
 +++ b/layout/generic/nsHTMLCanvasFrame.cpp
@@ -696,10 +678,9 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
 +        }
        }
  
-@@ -603,4 +776,10 @@ nsSimplePageSequenceFrame::PrintNextPage
+@@ -603,4 +776,9 @@ nsSimplePageSequenceFrame::PrintNextPage
                           mCurrentPageFrame->GetSize());
        nsRegion drawingRegion(drawingRect);
-+
 +
 +      // Replace the underlaying context off all canvas that are "printCanvas".
 +      nsRefPtr<gfxASurface> renderingSurface =
@@ -714,13 +695,6 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
 +
    mPageNum++;
  
-@@ -640,5 +821,5 @@ nsSimplePageSequenceFrame::DoPageEnd()
-     mCurrentPageFrame = mCurrentPageFrame->GetNextSibling();
-   }
--  
-+
-   return rv;
- }
 diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
 --- a/layout/generic/nsSimplePageSequence.h
 +++ b/layout/generic/nsSimplePageSequence.h
@@ -964,29 +938,6 @@ diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
 +  bool     PrePrintPage();
    bool     PrintPage(nsPrintObject* aPOect, bool& aInRange);
    bool     DonePrintingPages(nsPrintObject* aPO, nsresult aResult);
-diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
---- a/toolkit/components/printing/content/printPreviewBindings.xml
-+++ b/toolkit/components/printing/content/printPreviewBindings.xml
-@@ -197,4 +197,19 @@
-       </method>
- 
-+      <method name="doPageSetup">
-+        <body>
-+        <![CDATA[
-+          var didOK = PrintUtils.showPageSetup();
-+          if (didOK) {
-+            // the changes that effect the UI
-+            this.updateToolbar();
-+
-+            // Now do PrintPreview
-+            PrintUtils.printPreview();
-+          }
-+        ]]>
-+        </body>
-+      </method>
-+
-       <method name="navigate">
-         <parameter name="aDirection"/>
 diff --git a/toolkit/components/printing/content/printUtils.js b/toolkit/components/printing/content/printUtils.js
 --- a/toolkit/components/printing/content/printUtils.js
 +++ b/toolkit/components/printing/content/printUtils.js
@@ -1006,13 +957,6 @@ diff --git a/toolkit/components/printing/content/printUtils.js b/toolkit/compone
 +
      var browser = this._callback.getPrintPreviewBrowser();
      browser.collapsed = false;
-@@ -248,4 +254,6 @@ var PrintUtils = {
-   exitPrintPreview: function ()
-   {
-+    Components.utils.reportError("exitPrintPreview");
-+
-     window.removeEventListener("keypress", this.onKeyPressPP, true);
- 
 @@ -254,4 +262,6 @@ var PrintUtils = {
      this._closeHandlerPP = null;
  

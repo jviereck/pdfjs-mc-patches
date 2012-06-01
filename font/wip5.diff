@@ -566,7 +566,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    CalcNumPrintablePages(mPrt->mNumPrintablePages);
  
    PR_PL(("--- Printing %d pages\n", mPrt->mNumPrintablePages));
-@@ -1779,78 +1847,275 @@ nsPrintEngine::SetupToPrintContent()
+@@ -1779,78 +1847,277 @@ nsPrintEngine::SetupToPrintContent()
  
  //-------------------------------------------------------
  // Recursively reflow each sub-doc and then calc
@@ -690,6 +690,8 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +  }
 +  return NS_OK;
 +}
++
++
 +
 +NS_IMETHODIMP
 +nsPrintEngine::OnProgressChange(nsIWebProgress *aWebProgress,
@@ -863,7 +865,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      // subdocuments.
      adjSize = frame->GetContentRect().Size();
      documentIsTopLevel = false;
-@@ -1874,16 +2139,50 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1874,16 +2141,50 @@ nsPrintEngine::ReflowPrintObject(nsPrint
      if (mIsCreatingPrintPreview) {
        nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
        if (cv) {
@@ -914,7 +916,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
                                nsPresContext::eContext_Print);
    NS_ENSURE_TRUE(aPO->mPresContext, NS_ERROR_OUT_OF_MEMORY);
    aPO->mPresContext->SetPrintSettings(mPrt->mPrintSettings);
-@@ -1915,34 +2214,36 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1915,34 +2216,36 @@ nsPrintEngine::ReflowPrintObject(nsPrint
      delete styleSet;
      return rv;
    }
@@ -963,7 +965,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    aPO->mPresContext->SetIsRootPaginatedDocument(documentIsTopLevel);
    aPO->mPresContext->SetPageScale(aPO->mZoomRatio);
    // Calculate scale factor from printer to screen
-@@ -1953,52 +2254,26 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1953,52 +2256,26 @@ nsPrintEngine::ReflowPrintObject(nsPrint
    if (mIsCreatingPrintPreview && documentIsTopLevel) {
      mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
                                                   aPO->mPresContext,
@@ -1020,7 +1022,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
        GetDocTitleAndURL(aPO, docStr, urlStr);
        char filename[256];
        sprintf(filename, "print_dump_%d.txt", gDumpFileNameCnt++);
-@@ -2186,16 +2461,17 @@ static nsresult CloneSelection(nsIDocume
+@@ -2186,16 +2463,17 @@ static nsresult CloneSelection(nsIDocume
    }
    return NS_OK;
  }
@@ -1038,7 +1040,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    nsPresContext*  poPresContext = aPO->mPresContext;
  
    NS_ASSERTION(poPresContext, "PrintObject has not been reflowed");
-@@ -3187,16 +3463,17 @@ nsPrintEngine::CloseProgressDialog(nsIWe
+@@ -3187,16 +3465,17 @@ nsPrintEngine::CloseProgressDialog(nsIWe
      aWebProgressListener->OnStateChange(nsnull, nsnull, nsIWebProgressListener::STATE_STOP|nsIWebProgressListener::STATE_IS_DOCUMENT, nsnull);
    }
  }
@@ -1056,7 +1058,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      /* we're already finished with print preview */
      return rv;
    }
-@@ -3220,17 +3497,17 @@ nsPrintEngine::FinishPrintPreview()
+@@ -3220,17 +3499,17 @@ nsPrintEngine::FinishPrintPreview()
    // before it is to be created
  
  
@@ -1075,7 +1077,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    mPrtPreview = mPrt;
    mPrt        = nsnull;
  
-@@ -3264,33 +3541,23 @@ nsPrintEngine::StartPagePrintTimer(nsPri
+@@ -3264,33 +3543,23 @@ nsPrintEngine::StartPagePrintTimer(nsPri
  }
  
  /*=============== nsIObserver Interface ======================*/

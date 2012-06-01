@@ -1,0 +1,20 @@
+diff --git a/toolkit/components/printing/content/printUtils.js b/toolkit/components/printing/content/printUtils.js
+--- a/toolkit/components/printing/content/printUtils.js
++++ b/toolkit/components/printing/content/printUtils.js
+@@ -295,8 +295,16 @@ var PrintUtils = {
+     }
+     // cancel shortkeys
+     if (isModif) {
+       aEvent.preventDefault();
+       aEvent.stopPropagation();
+     }
+   }
+ }
++
++document.addEventListener("printPreviewUpdate", function() {
++  var printPreviewTB = document.getElementById("print-preview-toolbar");
++  if (printPreviewTB) {
++    printPreviewTB.updateToolbar.bind(this) 
++  }
++}, false);
++

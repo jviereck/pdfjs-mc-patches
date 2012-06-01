@@ -1,20 +1,22 @@
-diff --git a/toolkit/components/printing/content/printUtils.js b/toolkit/components/printing/content/printUtils.js
---- a/toolkit/components/printing/content/printUtils.js
-+++ b/toolkit/components/printing/content/printUtils.js
-@@ -295,8 +295,16 @@ var PrintUtils = {
-     }
-     // cancel shortkeys
-     if (isModif) {
-       aEvent.preventDefault();
-       aEvent.stopPropagation();
-     }
-   }
- }
-+
-+document.addEventListener("printPreviewUpdate", function() {
-+  var printPreviewTB = document.getElementById("print-preview-toolbar");
-+  if (printPreviewTB) {
-+    printPreviewTB.updateToolbar.bind(this) 
-+  }
-+}, false);
-+
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
+--- a/toolkit/components/printing/content/printPreviewBindings.xml
++++ b/toolkit/components/printing/content/printPreviewBindings.xml
+@@ -127,16 +127,17 @@
+      
+       <constructor>
+       <![CDATA[
+         var print = PrintUtils.getPrintPreview();
+         this.mTotalPages.value = print.printPreviewNumPages;
+         this.mPageTextBox.max = print.printPreviewNumPages;
+ 
+         this.updateToolbar();
++        document.addEventListener("printPreviewUpdate", this.updateToolbar.bind(this), false);
+ 
+         // Hide the ``Print...'' button when the underlying gfx code does not
+         // support multiple devicecontext to be used concurrently
+         // (e.g. printing and printpreview at the same time; required as 
+         // legacy support for unices.'s PostScript module
+         // XXX the scaling widgets, and the orientation widgets on unices.
+         var canPrint = true;
+         try

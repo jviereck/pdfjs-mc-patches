@@ -1,5 +1,5 @@
 # HG changeset patch
-# Parent 62f1f8b2281a43a9cbf2484fd18719c3831408de
+# Parent 357884ad06f95ae1f269248977745e148a49ada0
 
 diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/content/public/nsHTMLCanvasElement.h
 --- a/content/html/content/public/nsHTMLCanvasElement.h
@@ -44,7 +44,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
      mCanvas(aCanvas), mContext(aContext), mCallback(aCallback) {
    }
  
-@@ -90,51 +91,61 @@ public:
+@@ -90,62 +91,72 @@ public:
        }
        Reset();
      }
@@ -105,7 +105,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 +
 +NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsCanvasPrintState)
-+  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR_AMBIGUOUS(mCanvas, nsIDOMHTMLCanvasElement)
++  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCanvas)
 +  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mContext)
 +  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCallback)
 +NS_IMPL_CYCLE_COLLECTION_UNLINK_END
@@ -117,7 +117,19 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  {
    return new nsHTMLCanvasElement(aNodeInfo);
  }
-@@ -224,17 +235,17 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+-  : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false),
++  : nsGenericHTMLElement(aNodeInfo), 
+     mOriginalCanvas(nsnull), mPrintState(nsnull), mWriteOnly(false),
+     mIsPrintCanvas(false), mIsPrintPreview(false) {
+     printf("=== nsHTMLCanvasElement - Created!\n");
+ }
+ 
+ nsHTMLCanvasElement::~nsHTMLCanvasElement()
+ {
+   ResetPrintCallback();
+@@ -224,21 +235,20 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
  }
  
  bool
@@ -131,15 +143,98 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
      return true;
    }
  
-   mIsReadyToPrint = true;
+-  mIsReadyToPrint = true;
    CallPrintCallback(nsnull);
    return true;
  }
  
+ void
+ nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
+ {
+   printf("=== CE::CallPrintCallback\n");
+diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePageSequence.cpp
+--- a/layout/generic/nsSimplePageSequence.cpp
++++ b/layout/generic/nsSimplePageSequence.cpp
+@@ -519,17 +519,17 @@ void GetPrintCanvasElementsInFrame(nsIFr
+       // no nsHTMLCanvasElement on it. Check if children of `child` might
+       // contain a nsHTMLCanvasElement.
+       GetPrintCanvasElementsInFrame(child, aArr);
+     }
+   }
+ }
+ 
+ void
+-nsSimplePageSequenceFrame::ComputePrintThisPage()
++nsSimplePageSequenceFrame::DetermineWhetherToPrintPage()
+ {
+   // See whether we should print this page
+   mPrintThisPage = true;
+ 
+   bool printEvenPages, printOddPages;
+   mPageData->mPrintSettings->GetPrintOptions(nsIPrintSettings::kPrintEvenPages, &printEvenPages);
+   mPageData->mPrintSettings->GetPrintOptions(nsIPrintSettings::kPrintOddPages, &printOddPages);
+ 
+@@ -582,17 +582,17 @@ nsSimplePageSequenceFrame::PrePrintNextP
+ {
+   *aAborted = false;
+   printf("--- SPSF::PrePrintNextPage : ENTER\n");
+   if (mCurrentPageFrame == nsnull) {
+     *aDone = true;
+     return NS_ERROR_FAILURE;
+   }
+   
+-  ComputePrintThisPage();
++  DetermineWhetherToPrintPage();
+   // Nothing to do if the current page doesn't get printed OR rendering to
+   // preview. For preview, the `CallPrintCallback` is called from within the
+   // nsHTMLCanvasElement::HandlePrintCallback.
+   if (!mPrintThisPage || !PresContext()->IsRootPaginatedDocument()) {
+     *aDone = true;
+     return NS_OK;
+   }
+ 
+@@ -728,17 +728,17 @@ nsSimplePageSequenceFrame::PrintNextPage
+ // the page numbers would have been 2 and then 3)
+ 
+   if (mCurrentPageFrame == nsnull) {
+     return NS_ERROR_FAILURE;
+   }
+ 
+   nsresult rv = NS_OK;
+ 
+-  ComputePrintThisPage();
++  DetermineWhetherToPrintPage();
+ 
+   if (mPrintThisPage) {
+     // Begin printing of the document
+     nsDeviceContext *dc = PresContext()->DeviceContext();
+ 
+     // XXX This is temporary fix for printing more than one page of a selection
+     // This does a poor man's "dump" pagination (see Bug 89353)
+     // It has laid out as one long page and now we are just moving or view up/down 
 diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePageSequence.h
 --- a/layout/generic/nsSimplePageSequence.h
 +++ b/layout/generic/nsSimplePageSequence.h
-@@ -138,26 +138,27 @@ protected:
+@@ -120,16 +120,18 @@ protected:
+   void SetPageNumberFormat(PRUnichar * aFormatStr, bool aForPageNumOnly);
+ 
+   // Sets the frame desired size to the size of the viewport, or the given
+   // nscoords, whichever is larger. Print scaling is applied in this function.
+   void SetDesiredSize(nsHTMLReflowMetrics& aDesiredSize,
+                       const nsHTMLReflowState& aReflowState,
+                       nscoord aWidth, nscoord aHeight);
+ 
++  void         DetermineWhetherToPrintPage();
++
+   nsMargin mMargin;
+ 
+   // I18N date formatter service which we'll want to cache locally.
+   nsCOMPtr<nsIDateTimeFormat> mDateFormatter;
+ 
+   nsSize       mSize;
+   nsSharedPageData* mPageData; // data shared by all the nsPageFrames
+ 
+@@ -138,26 +140,25 @@ protected:
    PRInt32      mPageNum;
    PRInt32      mTotalPages;
    PRInt32      mPrintRangeType;
@@ -150,8 +245,7 @@ diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePage
  
 -  bool         mCurrentCanvasListSetup;
 -  void         ComputePrintThisPage();
-+  void         ();
- 
+-
    // Selection Printing Info
    nscoord      mSelectionHeight;
    nscoord      mYSelOffset;

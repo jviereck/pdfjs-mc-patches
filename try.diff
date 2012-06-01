@@ -1,4 +1,4 @@
 # HG changeset patch
-# Parent 00fc24323b97927599097ed65c585b5039991506
-try: -b do -e -p linux,win32,win64 -u all -t none
+# Parent f79301665b610f9c59846d731c2950032b442b9d
+try: -b do -p all -u all -t none
 

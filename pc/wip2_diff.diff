@@ -1,0 +1,57 @@
+# HG changeset patch
+# Parent 6b649e9e7f9d53dec6b7bb0f6a3b2fcdf3ab48ef
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -132,31 +132,31 @@ NS_INTERFACE_MAP_END
+ NS_IMPL_CYCLE_COLLECTION_CLASS(nsCanvasPrintState)
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsCanvasPrintState)
+   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR_AMBIGUOUS(mCanvas, nsIDOMHTMLCanvasElement)
+   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mContext)
+   NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mCallback)
+ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+ 
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsCanvasPrintState)
+-  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR_AMBIGUOUS(mCanvas, nsIDOMHTMLCanvasElement)
++  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCanvas)
+   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mContext)
+   NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCallback)
+ NS_IMPL_CYCLE_COLLECTION_UNLINK_END
+ // ---------------------------------------------------------------------------
+ 
+ nsGenericHTMLElement*
+ NS_NewHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo,
+                         FromParser aFromParser)
+ {
+   return new nsHTMLCanvasElement(aNodeInfo);
+ }
+ 
+ nsHTMLCanvasElement::nsHTMLCanvasElement(already_AddRefed<nsINodeInfo> aNodeInfo)
+-  : nsGenericHTMLElement(aNodeInfo), mIsReadyToPrint(false),
++  : nsGenericHTMLElement(aNodeInfo), 
+     mOriginalCanvas(nsnull), mPrintState(nsnull), mWriteOnly(false),
+     mIsPrintCanvas(false), mIsPrintPreview(false) {
+     printf("=== nsHTMLCanvasElement - Created!\n");
+ }
+ 
+ nsHTMLCanvasElement::~nsHTMLCanvasElement()
+ {
+   ResetPrintCallback();
+@@ -239,17 +239,16 @@ nsHTMLCanvasElement::HandlePrintCallback
+ {
+   printf("=== HandlePrintCallback\n");
+   // If the canvas is a printCanvas and the printing target is real paper,
+   // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
+   if (mPrintState || !mIsPrintCanvas || !mIsPrintPreview) {
+     return true;
+   }
+ 
+-  mIsReadyToPrint = true;
+   CallPrintCallback(nsnull);
+   return true;
+ }
+ 
+ void
+ nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
+ {
+   printf("=== CE::CallPrintCallback\n");

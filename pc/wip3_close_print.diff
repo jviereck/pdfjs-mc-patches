@@ -1,0 +1,126 @@
+# HG changeset patch
+# Parent cb229c892bc8d1260586b4d3a0ec4eba6462c3ee
+
+diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
+--- a/content/html/content/src/nsHTMLCanvasElement.cpp
++++ b/content/html/content/src/nsHTMLCanvasElement.cpp
+@@ -60,5 +60,4 @@ public:
+   NS_IMETHOD GetContext(nsISupports **context)
+   {
+-    printf("=== GetContext2\n");
+     NS_ADDREF(*context = mContext);
+     return NS_OK;
+@@ -67,5 +66,4 @@ public:
+   NS_IMETHOD Done()
+   {
+-    printf("CPS::Done\n");
+     Finalize(false);
+     return NS_OK;
+@@ -74,5 +72,4 @@ public:
+   NS_IMETHOD Abort()
+   {
+-    printf("CPS::Abort\n");
+     Finalize(true);
+     (new nsAsyncDOMEvent(
+@@ -94,9 +91,4 @@ public:
+   }
+ 
+-  void Reset()
+-  {
+-    printf("=== nsCanvasPrintState::Reset()\n");
+-  }
+-
+   bool mIsDone;
+   bool mIsAborted;
+@@ -108,5 +100,4 @@ private:
+   ~nsCanvasPrintState() 
+   {
+-    printf("--- nsCanvasPrintState::Destory\n");
+   }
+ 
+@@ -155,5 +146,4 @@ nsHTMLCanvasElement::nsHTMLCanvasElement
+     mOriginalCanvas(nsnull), mPrintState(nsnull), mWriteOnly(false),
+     mIsPrintCanvas(false), mIsPrintPreview(false) {
+-    printf("=== nsHTMLCanvasElement - Created!\n");
+ }
+ 
+@@ -238,5 +228,4 @@ bool
+ nsHTMLCanvasElement::HandlePrintCallback()
+ {
+-  printf("=== HandlePrintCallback\n");
+   // If the canvas is a printCanvas and the printing target is real paper,
+   // then the canvas is setup in nsSimplePageSequence::PrePagePrintNext().
+@@ -252,5 +241,4 @@ void
+ nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
+ {
+-  printf("=== CE::CallPrintCallback\n");
+   // ??? Any ADD_REF magic to be done here ???
+   mPrintState = new nsCanvasPrintState(this, mCurrentContext, aCallback);
+@@ -270,5 +258,4 @@ bool
+ nsHTMLCanvasElement::IsPrintCallbackDone()
+ {
+-  printf("=== CE:IsPrintCallbackDone\n");
+   if (mPrintState == nsnull) {
+     return true;
+@@ -281,5 +268,4 @@ bool
+ nsHTMLCanvasElement::IsPrintCallbackAborted()
+ {
+-  printf("=== CE:IsPrintCallbackAborted\n");
+   if (mPrintState == nsnull) {
+     return false;
+@@ -856,12 +842,9 @@ void
+ nsHTMLCanvasElement::InvalidateCanvasContent(const gfxRect* damageRect)
+ {
+-  printf("nsHTMLCanvasElement:;InvalidateCanvasContent - Entry\n");
+   // We don't need to flush anything here; if there's no frame or if
+   // we plan to reframe we don't need to invalidate it anyway.
+   nsIFrame *frame = GetPrimaryFrame();
+-  if (!frame) {
+-    printf("nsHTMLCanvasElement:;InvalidateCanvasContent - Early Quit\n");
++  if (!frame) 
+     return;
+-  }
+ 
+   frame->MarkLayersActive(nsChangeHint(0));
+@@ -892,8 +875,4 @@ nsHTMLCanvasElement::InvalidateCanvasCon
+   invalRect.MoveBy(contentArea.TopLeft() - frame->GetPosition());
+ 
+-  printf("nsHTMLCanvasElement:;InvalidateCanvasContent - Invalidate\n");
+-
+-  printf("rect: %d,%d,%d,%d\n", invalRect.x, invalRect.y, invalRect.width, invalRect.height);
+-
+   Layer* layer = frame->InvalidateLayer(invalRect, nsDisplayItem::TYPE_CANVAS);
+   if (layer) {
+diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
+--- a/layout/printing/nsPrintEngine.cpp
++++ b/layout/printing/nsPrintEngine.cpp
+@@ -35,4 +35,5 @@ static const char sPrintSettingsServiceC
+ #include "nsPrintPreviewListener.h"
+ #include "nsThreadUtils.h"
++#include "nsAsyncDOMEvent.h"
+ 
+ // Printing
+@@ -2434,4 +2435,5 @@ nsPrintEngine::PrePrintPage()
+       mPrt->mIsAborted = true;
+     }
++
+     done = true;
+   }
+@@ -2441,4 +2443,17 @@ nsPrintEngine::PrePrintPage()
+   if (aborted) {
+     printf("nsPrintEngine::PrePrintPage() - ABORTED!\n");
++    
++    // If there is a printPreview object, notify it about the abortion, such
++    // that print preview closes.
++    if (mIsDoingPrintPreview) {
++      printf("=== nsPrintEngine::PrePrintPage() - printPreviewEvent\n");
++      // nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mPrtPreview->mPrintObject->mDocument);
++      (new nsAsyncDOMEvent(
++         mPrtPreview->mPrintObject->mDocument, NS_LITERAL_STRING("printCanvasAbort"), true, true)
++      //   cv->GetDocument(), NS_LITERAL_STRING("printCanvasAbort"), true, true)
++      )->RunDOMEventWhenSafe();
++    }
++
++
+     mPrt->mIsAborted = true;
+     done = true;

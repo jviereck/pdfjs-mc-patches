@@ -179,7 +179,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  
  //-------------------------------------------------------
  void nsPrintEngine::Destroy()
-@@ -670,37 +678,54 @@ nsPrintEngine::DoCommonPrint(bool       
+@@ -670,37 +676,54 @@ nsPrintEngine::DoCommonPrint(bool       
            mPrt->mPrintSettings->SetPrintFrameType(mPrt->mPrintFrameType);
          }
        }
@@ -238,7 +238,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  
    return NS_OK;
  }
-@@ -802,22 +831,31 @@ nsPrintEngine::GetIsFramesetFrameSelecte
+@@ -802,20 +825,29 @@ nsPrintEngine::GetIsFramesetFrameSelecte
  
  //----------------------------------------------------------------------------------
  /* readonly attribute long printPreviewNumPages; */
@@ -270,9 +270,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  //----------------------------------------------------------------------------------
  // Enumerate all the documents for their titles
  NS_IMETHODIMP
- nsPrintEngine::EnumerateDocumentNames(PRUint32* aCount,
-                                       PRUnichar*** aResult)
-@@ -856,17 +896,16 @@ nsPrintEngine::EnumerateDocumentNames(PR
+@@ -856,17 +888,16 @@ nsPrintEngine::EnumerateDocumentNames(PR
      }
      array[i] = docTitleStr;
      if (docURLStr) nsMemory::Free(docURLStr);
@@ -290,7 +288,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  nsPrintEngine::GetGlobalPrintSettings(nsIPrintSettings **aGlobalPrintSettings)
  {
    NS_ENSURE_ARG_POINTER(aGlobalPrintSettings);
-@@ -1596,111 +1636,136 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
+@@ -1596,111 +1627,136 @@ nsPrintEngine::ShowPrintErrorDialog(nsre
    dialog->Alert(title.get(), msg.get());
    PR_PL(("ShowPrintErrorDialog(): alert displayed successfully.\n"));
  }
@@ -497,18 +495,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    CalcNumPrintablePages(mPrt->mNumPrintablePages);
  
    PR_PL(("--- Printing %d pages\n", mPrt->mNumPrintablePages));
-@@ -1779,78 +1847,268 @@ nsPrintEngine::SetupToPrintContent()
- 
- //-------------------------------------------------------
- // Recursively reflow each sub-doc and then calc
- // all the frame locations of the sub-docs
- nsresult
- nsPrintEngine::ReflowDocList(nsPrintObject* aPO, bool aSetPixelScale)
- {
-   NS_ENSURE_ARG_POINTER(aPO);
- 
-   // Check to see if the subdocument's element has been hidden by the parent document
-   if (aPO->mParent && aPO->mParent->mPresShell) {
+@@ -1790,67 +1846,257 @@ nsPrintEngine::ReflowDocList(nsPrintObje
      nsIFrame* frame = aPO->mContent ? aPO->mContent->GetPrimaryFrame() : nsnull;
      if (!frame || !frame->GetStyleVisibility()->IsVisible()) {
        aPO->mDontPrint = true;
@@ -787,7 +774,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
      // subdocuments.
      adjSize = frame->GetContentRect().Size();
      documentIsTopLevel = false;
-@@ -1874,16 +2141,47 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1874,16 +2120,47 @@ nsPrintEngine::ReflowPrintObject(nsPrint
      if (mIsCreatingPrintPreview) {
        nsCOMPtr<nsIContentViewer> cv = do_QueryInterface(mDocViewerPrint);
        if (cv) {
@@ -835,7 +822,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
                                nsPresContext::eContext_Print);
    NS_ENSURE_TRUE(aPO->mPresContext, NS_ERROR_OUT_OF_MEMORY);
    aPO->mPresContext->SetPrintSettings(mPrt->mPrintSettings);
-@@ -1915,34 +2216,35 @@ nsPrintEngine::ReflowPrintObject(nsPrint
+@@ -1915,34 +2192,35 @@ nsPrintEngine::ReflowPrintObject(nsPrint
      delete styleSet;
      return rv;
    }
@@ -883,13 +870,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    aPO->mPresContext->SetIsRootPaginatedDocument(documentIsTopLevel);
    aPO->mPresContext->SetPageScale(aPO->mZoomRatio);
    // Calculate scale factor from printer to screen
-@@ -1953,52 +2256,24 @@ nsPrintEngine::ReflowPrintObject(nsPrint
-   if (mIsCreatingPrintPreview && documentIsTopLevel) {
-     mDocViewerPrint->SetPrintPreviewPresentation(aPO->mViewManager,
-                                                  aPO->mPresContext,
-                                                  aPO->mPresShell);
-   }
- 
+@@ -1959,46 +2237,18 @@ nsPrintEngine::ReflowPrintObject(nsPrint
    rv = aPO->mPresShell->InitialReflow(adjSize.width, adjSize.height);
  
    NS_ENSURE_SUCCESS(rv, rv);
@@ -938,7 +919,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
        GetDocTitleAndURL(aPO, docStr, urlStr);
        char filename[256];
        sprintf(filename, "print_dump_%d.txt", gDumpFileNameCnt++);
-@@ -3220,17 +3499,16 @@ nsPrintEngine::FinishPrintPreview()
+@@ -3220,17 +3470,16 @@ nsPrintEngine::FinishPrintPreview()
    // before it is to be created
  
  
@@ -956,7 +937,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    mPrtPreview = mPrt;
    mPrt        = nsnull;
  
-@@ -3264,33 +3543,23 @@ nsPrintEngine::StartPagePrintTimer(nsPri
+@@ -3264,32 +3513,19 @@ nsPrintEngine::StartPagePrintTimer(nsPri
  }
  
  /*=============== nsIObserver Interface ======================*/
@@ -978,17 +959,12 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 -      CleanupOnFailure(rv, false);
 -    }
 -    if (mPrtPreview) {
--      mPrtPreview->OnEndPrinting();
++  rv = InitPrintDocConstruction(true);
++  if (!mIsDoingPrinting && mPrtPreview) {
+       mPrtPreview->OnEndPrinting();
 -    }
 -    rv = NS_OK;
--  }
-+  rv = InitPrintDocConstruction(true);
-+  // ??? I think these lines were executed duplicate. OnEndPrinting() is called
-+  // is executed always from within FinishPrintPreview(). 
-+  // 
-+  //  if (mPrtPreview) {
-+  //    mPrtPreview->OnEndPrinting();
-+  //  }
+   }
  
    return rv;
  
@@ -996,7 +972,6 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  
  //---------------------------------------------------------------
  //-- PLEvent Notification
- //---------------------------------------------------------------
 diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
 --- a/layout/printing/nsPrintEngine.h
 +++ b/layout/printing/nsPrintEngine.h

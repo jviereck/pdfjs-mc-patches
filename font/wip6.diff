@@ -196,7 +196,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +    return NS_ERROR_FAILURE;
 +  }
 +
-+  // Without calling BLockOnload on the document, there might be a network
++  // Without calling BlockOnload on the document, there might be a network
 +  // request although there is nothing to load (no fonts, images). But this
 +  // extra network request gets detected by the progressListener attached
 +  // next line and causes an unnecessary reflow.

@@ -52,7 +52,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
  #include "Layers.h"
  
  class nsIDOMFile;
-+class nsCanvasPrintState;
++class nsHTMLCanvasPrintState;
 +class nsITimerCallback;
  
  class nsHTMLCanvasElement : public nsGenericHTMLElement,
@@ -76,7 +76,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
 +  nsCOMPtr<nsIPrintCallback> mPrintCallback;
    nsCOMPtr<nsICanvasRenderingContextInternal> mCurrentContext;
 -  
-+  nsCOMPtr<nsCanvasPrintState> mPrintState;
++  nsCOMPtr<nsHTMLCanvasPrintState> mPrintState;
  public:
    // Record whether this canvas should be write-only or not.
    // We set this when script paints an image from a different origin.
@@ -129,13 +129,13 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +#define NS_ICANVASPRINTSTATE_IID \
 +   {0x8d5fb8a0, 0x7782, 0x11e1, { 0xb0, 0xc4, 0x08, 0x00, 0x20, 0x0c, 0x9a, 0x67 }} 
 +
-+class nsCanvasPrintState : public nsIDOMCanvasPrintState
++class nsHTMLCanvasPrintState : public nsIDOMCanvasPrintState
 +{
 +public:
 +  NS_DECLARE_STATIC_IID_ACCESSOR(NS_ICANVASPRINTSTATE_IID)
 +
 +
-+  nsCanvasPrintState(
++  nsHTMLCanvasPrintState(
 +      nsHTMLCanvasElement *aCanvas,
 +      nsICanvasRenderingContextInternal *aContext, 
 +      nsITimerCallback *aCallback)
@@ -180,9 +180,9 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +
 +  // CC
 +  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
-+  NS_DECL_CYCLE_COLLECTION_CLASS(nsCanvasPrintState)
++  NS_DECL_CYCLE_COLLECTION_CLASS(nsHTMLCanvasPrintState)
 +private:
-+  ~nsCanvasPrintState() 
++  ~nsHTMLCanvasPrintState() 
 +  {
 +  }
 +
@@ -192,27 +192,27 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +  nsCOMPtr<nsITimerCallback> mCallback;
 +};
 +
-+NS_DEFINE_STATIC_IID_ACCESSOR(nsCanvasPrintState, NS_ICANVASPRINTSTATE_IID) 
++NS_DEFINE_STATIC_IID_ACCESSOR(nsHTMLCanvasPrintState, NS_ICANVASPRINTSTATE_IID) 
 +
-+NS_IMPL_CYCLE_COLLECTING_ADDREF(nsCanvasPrintState)
-+NS_IMPL_CYCLE_COLLECTING_RELEASE(nsCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTING_ADDREF(nsHTMLCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTING_RELEASE(nsHTMLCanvasPrintState)
 +
-+DOMCI_DATA(CanvasPrintState, nsCanvasPrintState)
++DOMCI_DATA(CanvasPrintState, nsHTMLCanvasPrintState)
 +
-+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsCanvasPrintState)
++NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(nsHTMLCanvasPrintState)
 +  NS_INTERFACE_MAP_ENTRY(nsISupports)
 +  NS_INTERFACE_MAP_ENTRY(nsIDOMCanvasPrintState)
 +  NS_DOM_INTERFACE_MAP_ENTRY_CLASSINFO(CanvasPrintState)
 +NS_INTERFACE_MAP_END
 +
-+NS_IMPL_CYCLE_COLLECTION_CLASS(nsCanvasPrintState)
-+NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTION_CLASS(nsHTMLCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(nsHTMLCanvasPrintState)
 +  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR_AMBIGUOUS(mCanvas, nsIDOMHTMLCanvasElement)
 +  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mContext)
 +  NS_IMPL_CYCLE_COLLECTION_TRAVERSE_NSCOMPTR(mCallback)
 +NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 +
-+NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsCanvasPrintState)
++NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsHTMLCanvasPrintState)
 +  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCanvas)
 +  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mContext)
 +  NS_IMPL_CYCLE_COLLECTION_UNLINK_NSCOMPTR(mCallback)
@@ -285,7 +285,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +void
 +nsHTMLCanvasElement::CallPrintCallback(nsITimerCallback *aCallback)
 +{
-+  mPrintState = new nsCanvasPrintState(this, mCurrentContext, aCallback);
++  mPrintState = new nsHTMLCanvasPrintState(this, mCurrentContext, aCallback);
 +  mPrintCallback->Render(mPrintState);
 +}
 +
@@ -1210,28 +1210,6 @@ diff --git a/layout/printing/nsPagePrintTimer.h b/layout/printing/nsPagePrintTim
    nsPrintEngine*             mPrintEngine;
    nsCOMPtr<nsIDocumentViewerPrint> mDocViewerPrint;
    nsCOMPtr<nsITimer>         mTimer;
-diff --git a/layout/printing/nsPrintData.cpp b/layout/printing/nsPrintData.cpp
---- a/layout/printing/nsPrintData.cpp
-+++ b/layout/printing/nsPrintData.cpp
-@@ -56,16 +56,18 @@ nsPrintData::nsPrintData(ePrintDataType 
-   if (!mBrandName) {
-     mBrandName = ToNewUnicode(NS_LITERAL_STRING("Mozilla Document"));
-   }
- 
- }
- 
- nsPrintData::~nsPrintData()
- {
-+  printf("=== nsPrintData::~nsPrintData()\n");
-+
-   MOZ_COUNT_DTOR(nsPrintData);
-   // remove the event listeners
-   if (mPPEventListeners) {
-     mPPEventListeners->RemoveListeners();
-     NS_RELEASE(mPPEventListeners);
-   }
- 
-   // Only Send an OnEndPrinting if we have started printing
 diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
 --- a/layout/printing/nsPrintEngine.cpp
 +++ b/layout/printing/nsPrintEngine.cpp

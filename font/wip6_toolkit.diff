@@ -1,4 +1,3 @@
-diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
 diff --git a/toolkit/components/printing/content/printPreviewBindings.xml b/toolkit/components/printing/content/printPreviewBindings.xml
 --- a/toolkit/components/printing/content/printPreviewBindings.xml
 +++ b/toolkit/components/printing/content/printPreviewBindings.xml

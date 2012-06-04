@@ -1175,7 +1175,7 @@ diff --git a/layout/printing/nsPagePrintTimer.h b/layout/printing/nsPagePrintTim
 diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
 --- a/layout/printing/nsPrintEngine.cpp
 +++ b/layout/printing/nsPrintEngine.cpp
-@@ -2394,16 +2394,54 @@ nsPrintEngine::ElipseLongString(PRUnicha
+@@ -2394,16 +2394,52 @@ nsPrintEngine::ElipseLongString(PRUnicha
        nsMemory::Free(aStr);
        aStr = ToNewUnicode(newStr);
      }
@@ -1203,8 +1203,6 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +
 +  // Ask mPageSeqFrame if the page is ready to be printed.
 +  // If the page doesn't get printed at all, the |done| will be |true|.
-+  // |aborted| is set to true iff |printState.aborted()| was called on one of
-+  // the printCanvas.
 +  bool done = false;
 +  nsresult rv = mPageSeqFrame->PrePrintNextPage(mPagePrintTimer, &done);
 +  if (NS_FAILED(rv)) {
@@ -1230,7 +1228,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    NS_ASSERTION(mPrt,           "mPrt is null!");
  
    // Although these should NEVER be NULL
-@@ -2414,17 +2452,17 @@ nsPrintEngine::PrintPage(nsPrintObject* 
+@@ -2414,17 +2450,17 @@ nsPrintEngine::PrintPage(nsPrintObject* 
    }
  
    PR_PL(("-----------------------------------\n"));
@@ -1249,7 +1247,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  
    bool donePrinting;
    bool isDoingPrintRange;
-@@ -2799,17 +2837,24 @@ nsPrintEngine::IsWindowsInOurSubTree(nsP
+@@ -2799,17 +2835,24 @@ nsPrintEngine::IsWindowsInOurSubTree(nsP
  
  //-------------------------------------------------------
  bool

@@ -62,7 +62,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
    typedef mozilla::layers::CanvasLayer CanvasLayer;
    typedef mozilla::layers::LayerManager LayerManager;
  
-@@ -163,19 +165,36 @@ protected:
+@@ -163,19 +165,35 @@ protected:
    nsresult MozGetAsFileImpl(const nsAString& aName,
                              const nsAString& aType,
                              nsIDOMFile** aResult);
@@ -88,7 +88,6 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
 +  bool mIsPrintPreview;
 +  
 +  bool IsPrintCallbackDone();
-+  bool IsPrintCallbackAborted();
 +
 +  bool HandlePrintCallback();
 +
@@ -103,7 +102,7 @@ diff --git a/content/html/content/public/nsHTMLCanvasElement.h b/content/html/co
 diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/content/src/nsHTMLCanvasElement.cpp
 --- a/content/html/content/src/nsHTMLCanvasElement.cpp
 +++ b/content/html/content/src/nsHTMLCanvasElement.cpp
-@@ -21,51 +21,154 @@
+@@ -21,51 +21,138 @@
  #include "mozilla/Preferences.h"
  #include "mozilla/Telemetry.h"
  
@@ -139,7 +138,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +      nsHTMLCanvasElement *aCanvas,
 +      nsICanvasRenderingContextInternal *aContext, 
 +      nsITimerCallback *aCallback)
-+  : mIsDone(false), mIsAborted(false),
++  : mIsDone(false),
 +    mCanvas(aCanvas), mContext(aContext), mCallback(aCallback) {
 +  }
 +
@@ -151,32 +150,16 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +
 +  NS_IMETHOD Done()
 +  {
-+    Finalize(false);
-+    return NS_OK;
-+  }
-+
-+  NS_IMETHOD Abort()
-+  {
-+    Finalize(true);
-+    (new nsAsyncDOMEvent(
-+       mCanvas->GetDocument(), NS_LITERAL_STRING("printCanvasAbort"), true, true)
-+    )->RunDOMEventWhenSafe();
-+    return NS_OK;
-+  }
-+
-+  void Finalize(bool aAborted)
-+  {
 +    if (!mIsDone) {
 +      mIsDone = true;
-+      mIsAborted = aAborted;
 +      if (mCallback) {
 +        mCallback->Notify(nsnull);
 +      }
 +    }
++    return NS_OK;
 +  }
 +
 +  bool mIsDone;
-+  bool mIsAborted;
 +
 +  // CC
 +  NS_DECL_CYCLE_COLLECTING_ISUPPORTS
@@ -260,7 +243,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  DOMCI_NODE_DATA(HTMLCanvasElement, nsHTMLCanvasElement)
  
  NS_INTERFACE_TABLE_HEAD_CYCLE_COLLECTION_INHERITED(nsHTMLCanvasElement)
-@@ -115,28 +218,100 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
+@@ -115,28 +202,90 @@ nsHTMLCanvasElement::SetAttr(PRInt32 aNa
    {
      rv = UpdateContext();
      NS_ENSURE_SUCCESS(rv, rv);
@@ -305,16 +288,6 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
 +  }
 +
 +  return mPrintState->mIsDone;
-+}
-+
-+bool
-+nsHTMLCanvasElement::IsPrintCallbackAborted()
-+{
-+  if (mPrintState == nsnull) {
-+    return false;
-+  }
-+
-+  return mPrintState->mIsAborted;
 +}
 +
 +nsIDOMHTMLCanvasElement*
@@ -363,7 +336,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  
  nsChangeHint
  nsHTMLCanvasElement::GetAttributeChangeHint(const nsIAtom* aAttribute,
-@@ -210,16 +385,30 @@ nsHTMLCanvasElement::MozFetchAsStream(ns
+@@ -210,16 +359,30 @@ nsHTMLCanvasElement::MozFetchAsStream(ns
  
    nsCOMPtr<nsIInputStreamCallback> asyncCallback;
    rv = NS_NewInputStreamReadyEvent(getter_AddRefs(asyncCallback), aCallback, mainThread);
@@ -394,7 +367,7 @@ diff --git a/content/html/content/src/nsHTMLCanvasElement.cpp b/content/html/con
  {
    // note that if we don't have a current context, the spec says we're
    // supposed to just return transparent black pixels of the canvas
-@@ -466,17 +655,20 @@ nsHTMLCanvasElement::GetContextHelper(co
+@@ -466,17 +629,20 @@ nsHTMLCanvasElement::GetContextHelper(co
  
  NS_IMETHODIMP
  nsHTMLCanvasElement::GetContext(const nsAString& aContextId,
@@ -485,7 +458,7 @@ diff --git a/dom/base/nsDOMClassInfoClasses.h b/dom/base/nsDOMClassInfoClasses.h
 diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
 --- a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
 +++ b/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl
-@@ -19,16 +19,29 @@
+@@ -19,16 +19,28 @@
   *
   * @status UNDER_DEVELOPMENT
   */
@@ -499,7 +472,6 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
 +  readonly attribute nsISupports context;
 +
 +  void done();
-+  void abort();
 +};
 +
 +[scriptable, function, uuid(8d5fb8a0-7782-11e1-b0c4-0800200c9a66)]
@@ -515,7 +487,7 @@ diff --git a/dom/interfaces/html/nsIDOMHTMLCanvasElement.idl b/dom/interfaces/ht
    attribute boolean mozOpaque;
  
    nsISupports getContext(in DOMString contextId,
-@@ -51,10 +64,12 @@ interface nsIDOMHTMLCanvasElement : nsID
+@@ -51,10 +63,12 @@ interface nsIDOMHTMLCanvasElement : nsID
    // A Mozilla-only extension to get a canvas context backed by double-buffered
    // shared memory. Only privileged callers can call this.
    nsISupports MozGetIPCContext(in DOMString contextId);
@@ -582,7 +554,7 @@ diff --git a/layout/generic/nsIPageSequenceFrame.h b/layout/generic/nsIPageSeque
                          PRUnichar* aDocTitle,
                          PRUnichar* aDocURL) = 0;
 +
-+  NS_IMETHOD PrePrintNextPage(nsITimerCallback *aCallback, bool *aDone, bool *aAborted) = 0;
++  NS_IMETHOD PrePrintNextPage(nsITimerCallback *aCallback, bool *aDone) = 0;
    NS_IMETHOD PrintNextPage() = 0;
 +  NS_IMETHOD ResetPrintCanvasList() = 0;
    NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum) = 0;
@@ -729,7 +701,7 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
          mPrintThisPage = false;
        
          PRInt32 i;
-@@ -553,18 +570,170 @@ nsSimplePageSequenceFrame::PrintNextPage
+@@ -553,18 +570,160 @@ nsSimplePageSequenceFrame::PrintNextPage
      if (!printEvenPages) {
        mPrintThisPage = false;  // don't print even numbered page
      }
@@ -741,9 +713,8 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
 +}
 +
 +NS_IMETHODIMP
-+nsSimplePageSequenceFrame::PrePrintNextPage(nsITimerCallback *aCallback, bool* aDone, bool* aAborted)
++nsSimplePageSequenceFrame::PrePrintNextPage(nsITimerCallback *aCallback, bool* aDone)
 +{
-+  *aAborted = false;
 +  if (mCurrentPageFrame == nsnull) {
 +    *aDone = true;
 +    return NS_ERROR_FAILURE;
@@ -816,16 +787,7 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
 +  for (PRInt32 i = mCurrentCanvasList.Length() - 1; i >= 0 ; i--) {
 +    nsHTMLCanvasElement *canvas = mCurrentCanvasList[i];
 +
-+    if (canvas->IsPrintCallbackAborted()) {
-+      *aDone = true;
-+      *aAborted = true;
-+      
-+      // Reset all print-callback objects. Otherwise they might be able to
-+      // call aCallback->Notify again, but the print logic expect this not to
-+      // happen.
-+      ResetPrintCanvasList();
-+      return NS_OK;
-+    } else if (canvas->IsPrintCallbackDone()) {
++    if (canvas->IsPrintCallbackDone()) {
 +      doneCounter++;
 +    }
 +  }
@@ -900,7 +862,7 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
      // I will soon improve this to work with IFrames 
      bool    continuePrinting = true;
      nscoord width, height;
-@@ -582,31 +751,40 @@ nsSimplePageSequenceFrame::PrintNextPage
+@@ -582,31 +741,40 @@ nsSimplePageSequenceFrame::PrintNextPage
      // cast the frame to be a page frame
      nsPageFrame * pf = static_cast<nsPageFrame*>(mCurrentPageFrame);
      pf->SetPageNumInfo(mPageNum, mTotalPages);
@@ -945,7 +907,7 @@ diff --git a/layout/generic/nsSimplePageSequence.cpp b/layout/generic/nsSimplePa
          selectionY += height;
          printedPageNum++;
          pf->SetPageNumInfo(printedPageNum, mTotalPages);
-@@ -629,16 +807,18 @@ nsSimplePageSequenceFrame::DoPageEnd()
+@@ -629,16 +797,18 @@ nsSimplePageSequenceFrame::DoPageEnd()
  {
    nsresult rv = NS_OK;
    if (PresContext()->IsRootPaginatedDocument() && mPrintThisPage) {
@@ -995,7 +957,7 @@ diff --git a/layout/generic/nsSimplePageSequence.h b/layout/generic/nsSimplePage
                          PRUnichar*        aDocTitle,
                          PRUnichar*        aDocURL);
 +
-+  NS_IMETHOD PrePrintNextPage(nsITimerCallback *aCallback, bool *aDone, bool *aAborted);
++  NS_IMETHOD PrePrintNextPage(nsITimerCallback *aCallback, bool *aDone);
    NS_IMETHOD PrintNextPage();
 +  NS_IMETHOD ResetPrintCanvasList();
    NS_IMETHOD GetCurrentPageNum(PRInt32* aPageNum);
@@ -1213,7 +1175,7 @@ diff --git a/layout/printing/nsPagePrintTimer.h b/layout/printing/nsPagePrintTim
 diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.cpp
 --- a/layout/printing/nsPrintEngine.cpp
 +++ b/layout/printing/nsPrintEngine.cpp
-@@ -2394,16 +2394,62 @@ nsPrintEngine::ElipseLongString(PRUnicha
+@@ -2394,16 +2394,54 @@ nsPrintEngine::ElipseLongString(PRUnicha
        nsMemory::Free(aStr);
        aStr = ToNewUnicode(newStr);
      }
@@ -1244,8 +1206,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +  // |aborted| is set to true iff |printState.aborted()| was called on one of
 +  // the printCanvas.
 +  bool done = false;
-+  bool aborted = false;
-+  nsresult rv = mPageSeqFrame->PrePrintNextPage(mPagePrintTimer, &done, &aborted);
++  nsresult rv = mPageSeqFrame->PrePrintNextPage(mPagePrintTimer, &done);
 +  if (NS_FAILED(rv)) {
 +    // ??? ::PrintPage doesn't set |mPrt->mIsAborted = true| if rv != NS_ERROR_ABORT,
 +    // but I don't really understand why this should be the right thing to do?
@@ -1255,13 +1216,6 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
 +      ShowPrintErrorDialog(rv);
 +      mPrt->mIsAborted = true;
 +    }
-+    done = true;
-+  }
-+  // If the printCallback was aborted, then set the isAborted flag, but don't
-+  // show any error message. It's the developer's job to show/design the user
-+  // some error message.
-+  if (aborted) {
-+    mPrt->mIsAborted = true;
 +    done = true;
 +  }
 +  return done;
@@ -1276,7 +1230,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
    NS_ASSERTION(mPrt,           "mPrt is null!");
  
    // Although these should NEVER be NULL
-@@ -2414,17 +2460,17 @@ nsPrintEngine::PrintPage(nsPrintObject* 
+@@ -2414,17 +2452,17 @@ nsPrintEngine::PrintPage(nsPrintObject* 
    }
  
    PR_PL(("-----------------------------------\n"));
@@ -1295,7 +1249,7 @@ diff --git a/layout/printing/nsPrintEngine.cpp b/layout/printing/nsPrintEngine.c
  
    bool donePrinting;
    bool isDoingPrintRange;
-@@ -2799,17 +2845,24 @@ nsPrintEngine::IsWindowsInOurSubTree(nsP
+@@ -2799,17 +2837,24 @@ nsPrintEngine::IsWindowsInOurSubTree(nsP
  
  //-------------------------------------------------------
  bool
@@ -1342,76 +1296,3 @@ diff --git a/layout/printing/nsPrintEngine.h b/layout/printing/nsPrintEngine.h
                      nsTArray<nsPrintObject*> * aDocList,
                      nsPrintObject *            aPO);
    nsresult ReflowDocList(nsPrintObject * aPO, bool aSetPixelScale);
-diff --git a/toolkit/components/printing/content/printUtils.js b/toolkit/components/printing/content/printUtils.js
---- a/toolkit/components/printing/content/printUtils.js
-+++ b/toolkit/components/printing/content/printUtils.js
-@@ -157,16 +157,17 @@ var PrintUtils = {
-   },
- 
-   _closeHandlerPP: null,
-   _webProgressPP: null,
-   _callback: null,
-   _sourceBrowser: null,
-   _originalTitle: "",
-   _originalURL: "",
-+  _exitPrintPreview: null,
- 
-   // This observer is called once the progress dialog has been "opened"
-   _obsPP: 
-   {
-     observe: function(aSubject, aTopic, aData)
-     {
-       // delay the print preview to show the content of the progress dialog
-       setTimeout(function () { PrintUtils.enterPrintPreview(); }, 0);
-@@ -232,32 +233,39 @@ var PrintUtils = {
-       this._closeHandlerPP = document.documentElement.getAttribute("onclose");
-     else
-       this._closeHandlerPP = null;
-     document.documentElement.setAttribute("onclose", "PrintUtils.exitPrintPreview(); return false;");
- 
-     // disable chrome shortcuts...
-     window.addEventListener("keypress", this.onKeyPressPP, true);
- 
-+    // close print preview if a print canvas got aborted.
-+    this._exitPrintPreview = this.exitPrintPreview.bind(this);
-+    document.documentElement.addEventListener("printCanvasAbort",
-+        this.exitPrintPreview, true);
-+
-     var browser = this._callback.getPrintPreviewBrowser();
-     browser.collapsed = false;
-     browser.contentWindow.focus();
- 
-     // on Enter PP Call back
-     this._callback.onEnter();
-   },
- 
-   exitPrintPreview: function ()
-   {
-     window.removeEventListener("keypress", this.onKeyPressPP, true);
- 
-     // restore the old close handler
-     document.documentElement.setAttribute("onclose", this._closeHandlerPP);
-     this._closeHandlerPP = null;
- 
-+    document.documentElement.removeEventListener("printCanvasAbort", this.exitPrintPreview, true);
-+
-     var webBrowserPrint = this.getPrintPreview();
-     webBrowserPrint.exitPrintPreview();
- 
-     // remove the print preview toolbar
-     var printPreviewTB = document.getElementById("print-preview-toolbar");
-     this._callback.getNavToolbox().parentNode.removeChild(printPreviewTB);
- 
-     var fm = Components.classes["@mozilla.org/focus-manager;1"]
-@@ -295,8 +303,11 @@ var PrintUtils = {
-     }
-     // cancel shortkeys
-     if (isModif) {
-       aEvent.preventDefault();
-       aEvent.stopPropagation();
-     }
-   }
- }
-+
-+// Make an explicit binding such that addEventListener/removeEventListener work.
-+PrintUtils.exitPrintPreview = PrintUtils.exitPrintPreview.bind(PrintUtils);
